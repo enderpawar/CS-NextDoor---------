@@ -419,6 +419,200 @@
   color: var(--color-text-secondary, #5d6274);
 }
 
+/* ── BiosTypeSelector (Phase 8) ──────────────────────────────────────────────── */
+.nd-bios-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.nd-bios-selector-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-brand, #5a81fa);
+}
+
+.nd-bios-selector-hint {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary, #5d6274);
+  line-height: 1.5;
+  margin: 0 0 0.25rem;
+}
+
+.nd-bios-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.6rem;
+}
+
+.nd-bios-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1.5px solid rgba(196, 197, 214, 0.72);
+  border-radius: 14px;
+  padding: 0.8rem 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  text-align: left;
+  width: 100%;
+}
+
+.nd-bios-card:hover,
+.nd-bios-card:focus-visible {
+  border-color: var(--color-brand, #5a81fa);
+  background: rgba(90, 129, 250, 0.05);
+}
+
+.nd-bios-card.selected {
+  border-color: var(--color-brand, #5a81fa);
+  background: rgba(90, 129, 250, 0.08);
+  box-shadow: 0 0 0 2px rgba(90, 129, 250, 0.25);
+}
+
+.nd-bios-card-icon { font-size: 1.1rem; }
+
+.nd-bios-card-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #1f2431);
+}
+
+.nd-bios-card-desc {
+  font-size: 0.71rem;
+  color: var(--color-text-secondary, #5d6274);
+  line-height: 1.35;
+}
+
+/* ── AudioCapture (Phase 8) ──────────────────────────────────────────────────── */
+.nd-audio-capture {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.nd-audio-capture-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-brand, #5a81fa);
+}
+
+.nd-audio-mic-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  font-size: 1.8rem;
+  background: linear-gradient(135deg, #5a81fa, #446ce4);
+  box-shadow: 0 6px 20px rgba(90, 129, 250, 0.35);
+  color: #fff;
+  align-self: center;
+}
+
+.nd-audio-mic-btn:disabled {
+  background: rgba(196, 197, 214, 0.5);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.nd-audio-mic-btn.recording {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+  animation: nd-pulse-record 1.2s ease-in-out infinite;
+}
+
+@keyframes nd-pulse-record {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.06); }
+}
+
+.nd-audio-timer {
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-heading, #191c1f);
+  letter-spacing: 0.04em;
+}
+
+.nd-audio-hint {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary, #5d6274);
+}
+
+.nd-audio-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: linear-gradient(135deg, #5a81fa, #446ce4);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.nd-audio-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nd-audio-result-card {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(196, 197, 214, 0.6);
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+  font-size: 0.85rem;
+  line-height: 1.65;
+  color: var(--color-text-primary, #1f2431);
+}
+
+.nd-audio-result-title {
+  font-weight: 700;
+  color: var(--color-heading, #191c1f);
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.nd-audio-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.nd-audio-confidence.high {
+  background: rgba(34, 197, 94, 0.12);
+  color: #166534;
+}
+
+.nd-audio-confidence.low {
+  background: rgba(239, 68, 68, 0.1);
+  color: #991b1b;
+}
+
 .nd-standalone-warn {
   display: flex;
   align-items: flex-start;

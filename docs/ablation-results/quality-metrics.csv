@@ -1,0 +1,1 @@
+filename,label,is_good,laplacian_variance,sharpness_score,fft_high_freq_ratio,sobel_energy,brightness_mean,brightness_std,flow_median

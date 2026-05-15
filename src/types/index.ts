@@ -100,6 +100,12 @@ export interface SessionInfo {
   expiresAt: string;     // ISO 8601
 }
 
+// ── Phase 8: BIOS + Audio ─────────────────────────────────────────────────────
+
+export type BiosType = 'AMI' | 'Award' | 'Phoenix' | 'OTHER';
+
+export type RecordingState = 'idle' | 'recording' | 'recorded';
+
 // ── Live Camera Guide Mode ────────────────────────────────────────────────────
 
 export type GuideContext =

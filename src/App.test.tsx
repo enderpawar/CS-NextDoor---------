@@ -21,7 +21,7 @@ describe('App — 런타임 모드 배지', () => {
 
   it('PWA standalone 모드에서 경고 카드 표시', () => {
     render(<App />);
-    expect(screen.getByText(/SW 데이터 없이 분석/)).toBeInTheDocument();
+    expect(screen.getByText(/하드웨어 진단만 가능/)).toBeInTheDocument();
   });
 
   it('Electron 모드에서 PC 시스템 진단 UI 표시', () => {

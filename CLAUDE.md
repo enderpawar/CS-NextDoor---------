@@ -172,10 +172,10 @@ nextdoor-cs/
 | **3** | ✅ 완료 — CPU 온도·사용률·메모리·GPU(한계 명시)·디스크 I/O 실시간 수집 + SystemDashboard 렌더링 |
 | **4** | ✅ 완료 — processAnalyzer + eventLogReader 수집, ProcessList(CPU/메모리 정렬 토글) + EventLogViewer(에러/경고) 렌더링 |
 | **5** | ✅ 완료 — 3단계 UI(증상입력→가설추적→재현모드) + 줌 전환 애니메이션 + 풀스크린 채팅뷰 + HypothesisTracker(해결됐나요 분기 포함) + 재현 모드(베이스라인 저장·delta 계산·결과 해석) + DiagnosisConfidence(< 0.6 배너) + 베이스라인 이상 감지 + 완료 화면 + 복합 원인 버튼. PatternSelector·HW 에스컬레이션은 Phase 11로 이관. 백엔드 엔드포인트 미구현(USE_MOCK=true). 테스트 54개 |
-| **6** ⭐ | 🔶 진행 중 — manifest.json·sw.js 기존 완비. PwaPage.tsx·mobile.css 완성. App.tsx 연결은 Codex 리디자인 완료 후 |
-| **7** ⭐ | 🔶 진행 중 — useOpenCV.ts·ShootingGuide.tsx·CameraView 통합(LiveGuideMode 내부) 완성. 별도 VideoAnalysis 컴포넌트는 Phase 8에서 |
+| **6** ⭐ | ✅ 완료 — manifest.json·sw.js·PwaPage.tsx·mobile.css·App.tsx 연결 완비 |
+| **7** ⭐ | ✅ 완료 — useOpenCV.ts·ShootingGuide.tsx·CameraView 통합(LiveGuideMode 내부) 완성 |
 | **7-B** ⭐⭐ | 🔶 진행 중 — LiveGuideMode.tsx·useGeminiLiveGuide.ts·useLiveFrameCapture.ts·모듈1/2/3 이식 완성. Python 노트북 검증 + ablation 후 BEST_PARAMS 업데이트 필요 |
-| **8** | 🔲 미시작 — 오디오 진단 (모듈 4 선택) |
+| **8** | ✅ 완료 — BiosTypeSelector.tsx·AudioCapture.tsx·PwaPage 통합. MediaRecorder iOS mp4 폴백·AEC 비활성화 적용. 모듈 4(비프음 스펙트로그램) Future Work |
 | **9** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
 | **10** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
 | **11** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
