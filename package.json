@@ -13,6 +13,7 @@
     "backend:dev": "cd backend && (export $(grep -v '^#' ../.env | xargs) 2>/dev/null; ./mvnw spring-boot:run)",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
+    "test:cv": "vitest run src/lib/cv",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
@@ -24,7 +25,8 @@
     "react-dom": "^18.3.1",
     "react-qr-code": "^2.0.15",
     "sockjs-client": "^1.6.1",
-    "systeminformation": "^5.22.11"
+    "systeminformation": "^5.22.11",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

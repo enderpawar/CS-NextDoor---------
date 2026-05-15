@@ -35,7 +35,7 @@ describe('App — 런타임 모드 배지', () => {
       configurable: true,
     });
     render(<App />);
-    expect(screen.getByText('AI 기반 실시간 진단')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '지금 PC 증상을 알려주세요' })).toBeInTheDocument();
   });
 });
 

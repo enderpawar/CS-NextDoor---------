@@ -75,7 +75,7 @@ async function enterConversation() {
 describe('ElectronDashboard — 랜딩 뷰', () => {
   it('초기 상태에서 증상 입력 heading이 렌더링된다', () => {
     render(<ElectronDashboard {...baseProps} />);
-    expect(screen.getByRole('heading', { name: '증상 입력' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '지금 PC 증상을 알려주세요' })).toBeInTheDocument();
   });
 
   it('증상 textarea가 렌더링된다', () => {
@@ -247,7 +247,7 @@ describe('ElectronDashboard — 가설 카드 인터랙션', () => {
   it('"이 조치 시도하기" 클릭 시 해봤어요/효과 없어요 버튼이 나타난다', async () => {
     await setup();
     const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
-    fireEvent.click(tryButtons[0]);
+    fireEvent.click(tryButtons[0]!);
     expect(screen.getByRole('button', { name: '해봤어요' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '효과 없어요' })).toBeInTheDocument();
   });
@@ -255,7 +255,7 @@ describe('ElectronDashboard — 가설 카드 인터랙션', () => {
   it('"해봤어요" 클릭 시 해결됐나요 분기 버튼이 나타난다', async () => {
     await setup();
     const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
-    fireEvent.click(tryButtons[0]);
+    fireEvent.click(tryButtons[0]!);
     fireEvent.click(screen.getByRole('button', { name: '해봤어요' }));
     expect(screen.getByRole('button', { name: '해결됐어요' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '아직 안 됐어요' })).toBeInTheDocument();
@@ -264,7 +264,7 @@ describe('ElectronDashboard — 가설 카드 인터랙션', () => {
   it('"해봤어요" → "해결됐어요" 클릭 시 완료 pill과 해결됨 카드가 표시된다', async () => {
     await setup();
     const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
-    fireEvent.click(tryButtons[0]);
+    fireEvent.click(tryButtons[0]!);
     fireEvent.click(screen.getByRole('button', { name: '해봤어요' }));
     fireEvent.click(screen.getByRole('button', { name: '해결됐어요' }));
     expect(screen.getByText('완료')).toBeInTheDocument();
@@ -274,7 +274,7 @@ describe('ElectronDashboard — 가설 카드 인터랙션', () => {
   it('"해봤어요" → "아직 안 됐어요" 클릭 시 추가 점검 필요 pill이 표시된다', async () => {
     await setup();
     const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
-    fireEvent.click(tryButtons[0]);
+    fireEvent.click(tryButtons[0]!);
     fireEvent.click(screen.getByRole('button', { name: '해봤어요' }));
     fireEvent.click(screen.getByRole('button', { name: '아직 안 됐어요' }));
     expect(screen.getByText('추가 점검 필요')).toBeInTheDocument();
@@ -283,7 +283,7 @@ describe('ElectronDashboard — 가설 카드 인터랙션', () => {
   it('"효과 없어요" 클릭 시 추가 점검 필요 pill이 표시된다', async () => {
     await setup();
     const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
-    fireEvent.click(tryButtons[0]);
+    fireEvent.click(tryButtons[0]!);
     fireEvent.click(screen.getByRole('button', { name: '효과 없어요' }));
     expect(screen.getByText('추가 점검 필요')).toBeInTheDocument();
   });
@@ -341,7 +341,7 @@ describe('ElectronDashboard — 새 진단 리셋', () => {
 
     // 채팅 상태 스트립의 "새 진단" 버튼 (topbar의 "새 진단"과 구별)
     const resetBtns = screen.getAllByRole('button', { name: '새 진단' });
-    fireEvent.click(resetBtns[0]);
+    fireEvent.click(resetBtns[0]!);
 
     expect(onReset).toHaveBeenCalledTimes(1);
   });
@@ -350,10 +350,10 @@ describe('ElectronDashboard — 새 진단 리셋', () => {
     const { onReset } = await enterWithResponseAndReset();
 
     const resetBtns = screen.getAllByRole('button', { name: '새 진단' });
-    fireEvent.click(resetBtns[0]);
+    fireEvent.click(resetBtns[0]!);
 
     // handleReset은 동기적 상태 업데이트
     await act(async () => {});
-    expect(screen.getByRole('heading', { name: '증상 입력' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '지금 PC 증상을 알려주세요' })).toBeInTheDocument();
   });
 });

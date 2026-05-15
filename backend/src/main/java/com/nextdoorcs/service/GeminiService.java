@@ -230,6 +230,21 @@ public class GeminiService {
         return callGemini(List.of(Map.of("text", prompt)));
     }
 
+    /**
+     * 라이브 가이드 모드 — 화면 이미지 + 프롬프트 → 안내 텍스트 (단순 텍스트 반환)
+     */
+    public String generateGuideResponse(String prompt, String frameBase64) {
+        List<Map<String, Object>> parts = new ArrayList<>();
+        parts.add(Map.of("text", prompt));
+        if (frameBase64 != null && !frameBase64.isBlank()) {
+            parts.add(Map.of("inline_data", Map.of(
+                "mime_type", "image/jpeg",
+                "data", frameBase64
+            )));
+        }
+        return callGemini(parts);
+    }
+
     private String buildHypothesisPrompt(String symptom, String systemSnapshotJson) {
         String snapshotSection = systemSnapshotJson != null && !systemSnapshotJson.equals("null")
             ? "\n\n시스템 정보:\n" + systemSnapshotJson

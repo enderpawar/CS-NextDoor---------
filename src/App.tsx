@@ -5,6 +5,7 @@ import type { ClipboardImage, HypothesesResponse } from './types';
 import ElectronDashboard from './components/desktop/ElectronDashboard';
 import { generateHypotheses } from './api/diagnosisApi';
 import type { EventLog, ProcessData } from './types/electron';
+import { Aperture, Camera, Link2, Mic, ScanLine, ShieldCheck, Sparkles, Waves } from 'lucide-react';
 import './styles/tokens.css';
 import './styles/global.css';
 import './styles/animations.css';
@@ -15,6 +16,7 @@ const CPU_HISTORY_MAX = 60;
 export default function App() {
   const mode = useRuntimeMode();
   const sysInfo = useSystemInfo();
+  const [introDone, setIntroDone] = useState(false);
   const [symptom, setSymptom] = useState('');
   const [clipboardImage, setClipboardImage] = useState<ClipboardImage | null>(null);
 
@@ -26,6 +28,11 @@ export default function App() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [eventLogs, setEventLogs] = useState<EventLog[]>([]);
   const [processData, setProcessData] = useState<ProcessData | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIntroDone(true), 3150);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // CPU 사용률 히스토리 — 실시간 꺾은선 그래프용
   useEffect(() => {
@@ -107,49 +114,169 @@ export default function App() {
 
   return (
     <div className={`app-root mode-${mode}`}>
+      {!introDone && (
+        <div className="nd-intro-sequence" aria-hidden="true">
+          <div className="nd-intro-frame">
+            <div className="nd-intro-header">
+              <span>PC DIAGNOSIS</span>
+              <span>NEXTDOOR CS</span>
+            </div>
+            <div className="nd-intro-core">
+              <span className="nd-intro-reticle" />
+              <span className="nd-intro-mark">N</span>
+              <div className="nd-intro-title">
+                <p>옆집 컴공생</p>
+                <strong>AI PC 진단을 준비하고 있습니다</strong>
+              </div>
+            </div>
+            <div className="nd-intro-log">
+              <span>01. 시스템 상태 확인</span>
+              <span>02. 이벤트 로그 연결</span>
+              <span>03. 카메라·마이크 진단 대기</span>
+              <span>04. 증상 입력 화면 준비</span>
+            </div>
+            <div className="nd-intro-progress"><span /></div>
+          </div>
+        </div>
+      )}
+
       {/* ── PWA 모드 ── */}
       {mode !== 'electron' && (
         <div className="nd-pwa-shell">
           <header className="nd-pwa-topbar animate-fade-in-down">
             <div className="nd-pwa-brand-block">
-              <div>
-                <p className="nd-pwa-overline">PC Doctor Mobile</p>
-                <h1 className="nd-pwa-title">하드웨어 진단 가이드</h1>
+              <div className="nd-pwa-brand-mark" aria-hidden="true">
+                <ScanLine size={20} />
               </div>
-              <p className="nd-pwa-brand-copy">카메라와 마이크 기반 하드웨어 진단</p>
+              <div>
+                <p className="nd-pwa-overline">옆집 컴공생 모바일 진단</p>
+                <h1 className="nd-pwa-title">PC 촬영 진단</h1>
+              </div>
             </div>
             <span className="nd-status-pill neutral">
-              {mode === 'pwa-session' ? 'LINKED SESSION' : 'STANDALONE'}
+              {mode === 'pwa-session' ? 'Electron 연결됨' : '독립 진단'}
             </span>
           </header>
 
           <main className="nd-pwa-main">
-            <section className="nd-pwa-hero-card nd-pwa-hero-panel animate-spring-in">
-              <div className="nd-pwa-hero-copy">
-                <p className="nd-pwa-hero-eyebrow">mobile flow</p>
-                <h2>카메라와 마이크를 이용해 하드웨어 증상을 단계별로 기록하는 모바일 진단 셸입니다.</h2>
-                <p>
-                  아직 Phase 6~8 화면은 구현 전이지만, 데스크톱과 동일한 글래스 톤과 블루 액센트로 첫 경험을 맞췄습니다.
-                </p>
-                <div className="nd-pwa-pill-row">
-                  <span className="nd-pwa-pill accent">Camera Guide</span>
-                  <span className="nd-pwa-pill">Audio Capture</span>
-                  <span className="nd-pwa-pill">Linked Session</span>
+            <section className="nd-pwa-diagnostic-stage animate-spring-in" aria-label="모바일 하드웨어 진단">
+              <div className="nd-pwa-viewfinder">
+                <div className="nd-pwa-viewfinder-top">
+                  <span className="nd-pwa-live-dot">카메라 대기</span>
+                  <span>품질 검사 준비</span>
+                </div>
+                <div className="nd-pwa-camera-status">
+                  <span>촬영 품질</span>
+                  <strong>91%</strong>
+                </div>
+
+                <div className="nd-pwa-scan-grid" aria-hidden="true" />
+                <div className="nd-pwa-roi-frame" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div className="nd-pwa-target-box nd-pwa-target-fan">
+                  <span>팬 영역</span>
+                  <strong>82%</strong>
+                </div>
+                <div className="nd-pwa-target-box nd-pwa-target-board">
+                  <span>메인보드</span>
+                  <strong>준비됨</strong>
+                </div>
+                <div className="nd-pwa-focus-ring" aria-hidden="true" />
+
+                <div className="nd-pwa-viewfinder-bottom">
+                  <div>
+                    <span>초점</span>
+                    <strong>양호</strong>
+                  </div>
+                  <div>
+                    <span>포함률</span>
+                    <strong>73%</strong>
+                  </div>
+                  <div>
+                    <span>조도</span>
+                    <strong>안정</strong>
+                  </div>
+                </div>
+                <div className="nd-pwa-capture-dock" aria-label="촬영 상태">
+                  <button className="nd-pwa-shutter" type="button" aria-label="진단 프레임 캡처">
+                    <Camera size={26} />
+                  </button>
+                  <div>
+                    <span>촬영 전 확인</span>
+                    <strong>전송 전 로컬 품질 검사</strong>
+                  </div>
                 </div>
               </div>
 
-              <div className="nd-pwa-side-grid animate-fade-in-up delay-150">
-                <article className="nd-pwa-side-card primary">
-                  <span className="nd-pwa-highlight-label">준비 중인 기능</span>
-                  <strong>카메라 가이드</strong>
-                  <p>프레임 보조와 촬영 가이드로 물리적 징후를 안정적으로 수집합니다.</p>
-                </article>
-                <article className="nd-pwa-side-card">
-                  <span className="nd-pwa-highlight-label">세션 연결</span>
-                  <strong>BIOS / Windows 안내</strong>
-                  <p>Electron 세션과 연결되면 SW 데이터와 함께 복합 원인을 추적합니다.</p>
-                </article>
-              </div>
+              <aside className="nd-pwa-control-panel">
+                <p className="nd-pwa-hero-eyebrow">카메라·비프음 진단</p>
+                <h2>PC 내부 상태를 촬영하고 진단 가능한 근거만 보냅니다.</h2>
+                <p>
+                  초점, 조도, 부품 포함률을 먼저 확인한 뒤 팬, 메인보드, LED처럼 원인 판단에 필요한 장면만 정리합니다.
+                </p>
+
+                <div className="nd-pwa-action-row" aria-label="진단 입력 도구">
+                  <button className="nd-pwa-icon-button primary" type="button" aria-label="카메라 촬영 시작">
+                    <Camera size={22} />
+                  </button>
+                  <button className="nd-pwa-icon-button" type="button" aria-label="비프음 녹음">
+                    <Mic size={21} />
+                  </button>
+                  <button className="nd-pwa-icon-button" type="button" aria-label="세션 연결">
+                    <Link2 size={21} />
+                  </button>
+                </div>
+
+                <div className="nd-pwa-quality-stack">
+                  <div className="nd-pwa-session-card">
+                    <span>진단 준비도</span>
+                    <strong>카메라 · 오디오 · 세션 대기</strong>
+                  </div>
+                  <div className="nd-pwa-quality-row">
+                    <span><Aperture size={15} /> 초점</span>
+                    <strong>91</strong>
+                  </div>
+                  <div className="nd-pwa-meter"><span style={{ width: '91%' }} /></div>
+                  <div className="nd-pwa-quality-row">
+                    <span><ScanLine size={15} /> 대상 포함률</span>
+                    <strong>73</strong>
+                  </div>
+                  <div className="nd-pwa-meter"><span style={{ width: '73%' }} /></div>
+                  <div className="nd-pwa-quality-row">
+                    <span><Waves size={15} /> 프레임 변화</span>
+                    <strong>42</strong>
+                  </div>
+                  <div className="nd-pwa-meter"><span style={{ width: '42%' }} /></div>
+                </div>
+              </aside>
+            </section>
+
+            <section className="nd-pwa-signal-strip animate-fade-in-up delay-150" aria-label="진단 상태">
+              <article>
+                <Sparkles size={18} />
+                <div>
+                  <span>프레임 선별</span>
+                  <strong>상위 5개 프레임 선별 예정</strong>
+                </div>
+              </article>
+              <article>
+                <ShieldCheck size={18} />
+                <div>
+                  <span>개인정보</span>
+                  <strong>로컬 품질 평가 후 전송</strong>
+                </div>
+              </article>
+              <article>
+                <Link2 size={18} />
+                <div>
+                  <span>세션</span>
+                  <strong>{mode === 'pwa-session' ? 'Electron 데이터 결합' : '모바일 단독 모드'}</strong>
+                </div>
+              </article>
             </section>
 
             {mode === 'pwa-standalone' && (
@@ -161,31 +288,18 @@ export default function App() {
             <section className="nd-pwa-card-grid">
               <article className="nd-pwa-card animate-fade-in-up delay-150">
                 <span className="nd-pwa-card-label">01</span>
-                <h3>문제 상황 설명</h3>
-                <p>부팅 불가, 비프음, LED 상태처럼 사용자가 체감하는 증상을 먼저 정리합니다.</p>
+                <h3>촬영 품질 평가</h3>
+                <p>Laplacian blur, 밝기, edge density로 사용할 수 있는 프레임인지 먼저 판단합니다.</p>
               </article>
               <article className="nd-pwa-card animate-fade-in-up delay-300">
                 <span className="nd-pwa-card-label">02</span>
-                <h3>카메라/오디오 수집</h3>
-                <p>카메라 프레임과 마이크 입력을 기반으로 하드웨어 징후를 수집할 준비를 갖춥니다.</p>
+                <h3>ROI 후보 표시</h3>
+                <p>Contour와 영역 비율을 이용해 팬, 보드, LED처럼 확인할 위치를 화면 위에 표시합니다.</p>
               </article>
               <article className="nd-pwa-card animate-fade-in-up delay-400">
                 <span className="nd-pwa-card-label">03</span>
-                <h3>세션 연결</h3>
-                <p>Electron과 연결되면 소프트웨어 정보와 함께 복합 원인 분석으로 확장됩니다.</p>
-              </article>
-            </section>
-
-            <section className="nd-pwa-support-grid animate-fade-in-up delay-500">
-              <article className="nd-pwa-support-card">
-                <p className="nd-pwa-support-title">실시간 연결 상태</p>
-                <strong>{mode === 'pwa-session' ? 'Electron 세션 연결됨' : '독립 모드 실행 중'}</strong>
-                <p>세션 연결 시 BIOS/오디오/시스템 진단 흐름이 하나의 진단 기록으로 연결됩니다.</p>
-              </article>
-              <article className="nd-pwa-support-card">
-                <p className="nd-pwa-support-title">권장 안내</p>
-                <strong>문제 발생 시점을 같이 적어주세요</strong>
-                <p>전원 직후, 부팅 화면, 윈도우 진입 직전처럼 시점을 적으면 더 정확한 안내가 가능합니다.</p>
+                <h3>변화 기반 전송</h3>
+                <p>히스토그램 변화가 있는 순간만 선별해 중복 프레임과 불필요한 API 호출을 줄입니다.</p>
               </article>
             </section>
           </main>

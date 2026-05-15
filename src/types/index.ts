@@ -119,3 +119,55 @@ export interface GuideSession {
   context: GuideContext;
   status: 'ACTIVE' | 'DONE';
 }
+
+// ── CV Harness / Frame Analysis ──────────────────────────────────────────────
+
+export type FrameGuidance =
+  | 'ready'
+  | 'stabilize'
+  | 'too_dark'
+  | 'too_bright'
+  | 'no_target'
+  | 'too_far';
+
+export interface CvFrameInput {
+  id: string;
+  width: number;
+  height: number;
+  data: Uint8ClampedArray;
+  timestampMs?: number;
+}
+
+export interface CvFrameMetrics {
+  id: string;
+  width: number;
+  height: number;
+  brightnessMean: number;    // 0.0~1.0
+  brightnessStdDev: number;  // 0.0~1.0
+  laplacianVariance: number;
+  sharpnessScore: number;    // 0.0~1.0
+  edgeDensity: number;       // 0.0~1.0
+  coverageRatio: number;     // 0.0~1.0
+  histogram: number[];
+  histogramSimilarity?: number;
+  sceneChangeScore?: number; // 0.0~1.0
+  qualityScore: number;      // 0~100
+  guidance: FrameGuidance;
+  guidanceText: string;
+  isUsable: boolean;
+}
+
+export interface CvAnalysisOptions {
+  edgeThreshold?: number;
+  minSharpness?: number;
+  minCoverageRatio?: number;
+  minBrightness?: number;
+  maxBrightness?: number;
+  histogramBins?: number;
+  sceneChangeThreshold?: number;
+}
+
+export interface CvFrameCandidate {
+  frame: CvFrameInput;
+  metrics: CvFrameMetrics;
+}

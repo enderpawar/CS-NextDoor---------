@@ -1,0 +1,433 @@
+/* ── Mobile PWA 전용 스타일 ───────────────────────────────────────────────────
+   global.css와 독립. Codex 리디자인 작업과 충돌하지 않음.
+   디자인 토큰은 tokens.css 참조.
+*/
+
+/* ── CameraView ─────────────────────────────────────────────────────────────── */
+.nd-camera-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.nd-camera-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nd-camera-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.nd-camera-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.875rem;
+  background: rgba(0, 0, 0, 0.55);
+  text-align: center;
+  padding: 1rem;
+}
+
+/* ── GuideBubble ────────────────────────────────────────────────────────────── */
+.nd-guide-bubble {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(196, 197, 214, 0.6);
+  border-radius: 18px;
+  padding: 1rem 1.25rem;
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: var(--color-text-primary, #1f2431);
+  min-height: 64px;
+  box-shadow: 0 4px 16px rgba(38, 56, 138, 0.08);
+  transition: box-shadow 0.2s;
+}
+
+.nd-guide-bubble.streaming {
+  box-shadow: 0 4px 20px rgba(90, 129, 250, 0.18);
+}
+
+.nd-guide-bubble-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-brand, #5a81fa);
+  margin-bottom: 0.4rem;
+}
+
+.nd-guide-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--color-brand, #5a81fa);
+  margin-left: 2px;
+  vertical-align: middle;
+  animation: nd-blink 0.8s step-end infinite;
+}
+
+@keyframes nd-blink {
+  50% { opacity: 0; }
+}
+
+/* ── Capture feedback ───────────────────────────────────────────────────────── */
+.nd-capture-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(90, 129, 250, 0.14);
+  color: var(--color-brand, #5a81fa);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  animation: nd-capture-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes nd-capture-pop {
+  from { transform: scale(0.8); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.nd-analyzing-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary, #5d6274);
+}
+
+.nd-analyzing-sub {
+  color: var(--color-brand, #5a81fa);
+  font-weight: 500;
+}
+
+/* ── Stale guide warning ─────────────────────────────────────────────────────── */
+.nd-stale-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 200, 0, 0.12);
+  border: 1px solid rgba(255, 180, 0, 0.4);
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  font-size: 0.82rem;
+  color: #7a5c00;
+  margin-top: 0.5rem;
+}
+
+/* ── GuideContextSelector ───────────────────────────────────────────────────── */
+.nd-context-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.nd-context-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1.5px solid rgba(196, 197, 214, 0.72);
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  text-align: left;
+}
+
+.nd-context-card:hover,
+.nd-context-card:focus-visible {
+  border-color: var(--color-brand, #5a81fa);
+  box-shadow: 0 2px 12px rgba(90, 129, 250, 0.15);
+  background: rgba(90, 129, 250, 0.05);
+}
+
+.nd-context-card-icon {
+  font-size: 1.4rem;
+}
+
+.nd-context-card-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #1f2431);
+}
+
+.nd-context-card-desc {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #5d6274);
+  line-height: 1.4;
+}
+
+/* ── LiveGuideMode layout ────────────────────────────────────────────────────── */
+.nd-live-guide-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  max-width: 640px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  background: var(--color-bg-page, #f8f9fd);
+}
+
+.nd-live-guide-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.nd-live-guide-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-heading, #191c1f);
+}
+
+.nd-live-guide-context-badge {
+  font-size: 0.72rem;
+  background: rgba(90, 129, 250, 0.12);
+  color: var(--color-brand, #5a81fa);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-weight: 600;
+}
+
+.nd-live-guide-end-btn {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border: none;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.nd-live-guide-end-btn:hover {
+  background: rgba(239, 68, 68, 0.18);
+}
+
+.nd-live-guide-feedback-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 28px;
+}
+
+.nd-quality-feedback {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary, #5d6274);
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 8px;
+  padding: 0.25rem 0.6rem;
+}
+
+/* ── ShootingGuide ───────────────────────────────────────────────────────────── */
+.nd-shooting-guide {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(196, 197, 214, 0.72);
+  border-radius: 18px;
+  padding: 1.25rem;
+  box-shadow: 0 4px 16px rgba(38, 56, 138, 0.06);
+}
+
+.nd-shooting-guide-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--color-heading, #191c1f);
+  margin-bottom: 0.75rem;
+}
+
+.nd-shooting-guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.nd-shooting-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.83rem;
+  line-height: 1.5;
+  color: var(--color-text-primary, #1f2431);
+}
+
+.nd-shooting-step-num {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-brand, #5a81fa);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.nd-shooting-tips {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(196, 197, 214, 0.5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.nd-shooting-tip-chip {
+  font-size: 0.73rem;
+  background: rgba(90, 129, 250, 0.08);
+  color: var(--color-brand, #5a81fa);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-weight: 500;
+}
+
+/* ── PWA landing page (Phase 6) ─────────────────────────────────────────────── */
+.nd-pwa-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--color-bg-page, #f8f9fd);
+  padding: 1.25rem 1rem;
+  gap: 1.25rem;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.nd-pwa-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-bottom: 0.5rem;
+}
+
+.nd-pwa-logo-mark {
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, #5a81fa, #446ce4);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.nd-pwa-header-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.nd-pwa-app-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-heading, #191c1f);
+  line-height: 1.2;
+}
+
+.nd-pwa-app-sub {
+  font-size: 0.73rem;
+  color: var(--color-text-secondary, #5d6274);
+}
+
+.nd-pwa-mode-card {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(196, 197, 214, 0.72);
+  border-radius: 18px;
+  padding: 1.25rem;
+  box-shadow: 0 4px 16px rgba(38, 56, 138, 0.06);
+}
+
+.nd-pwa-mode-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-brand, #5a81fa);
+  margin-bottom: 0.5rem;
+}
+
+.nd-pwa-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.nd-pwa-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1.5px solid rgba(196, 197, 214, 0.72);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  text-align: left;
+  width: 100%;
+}
+
+.nd-pwa-action-btn:hover {
+  border-color: var(--color-brand, #5a81fa);
+  box-shadow: 0 2px 12px rgba(90, 129, 250, 0.14);
+}
+
+.nd-pwa-action-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.nd-pwa-action-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.nd-pwa-action-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #1f2431);
+}
+
+.nd-pwa-action-desc {
+  font-size: 0.74rem;
+  color: var(--color-text-secondary, #5d6274);
+}
+
+.nd-standalone-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: rgba(250, 140, 0, 0.08);
+  border: 1px solid rgba(250, 140, 0, 0.3);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  font-size: 0.8rem;
+  color: #7a4500;
+  line-height: 1.5;
+}

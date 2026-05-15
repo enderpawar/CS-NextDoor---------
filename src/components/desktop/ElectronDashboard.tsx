@@ -3,6 +3,18 @@ import type { ClipboardEventHandler } from 'react';
 import type { ClipboardImage, HypothesesResponse, Hypothesis } from '../../types';
 import type { EventLog, ProcessData, SystemSnapshot } from '../../types/electron';
 import ProcessList from './ProcessList';
+import {
+  Activity,
+  AlertTriangle,
+  BookOpen,
+  Cpu,
+  History,
+  Link2,
+  Search,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 
 type HypoStatus = 'idle' | 'trying' | 'checking' | 'done' | 'failed';
 type ActiveTab = 'diagnose' | 'process' | 'events';
@@ -266,6 +278,22 @@ export default function ElectronDashboard({
       ? `오류 ${errorCount}건, 경고 ${warningCount}건이 감지되었습니다. 증상 설명과 함께 보내주시면 더 정확하게 원인을 좁힐 수 있어요.`
       : '';
 
+  const systemRisk = errorCount > 0
+    ? 'attention'
+    : memoryUsagePct != null && memoryUsagePct >= 80
+      ? 'warning'
+      : cpuUsage != null && cpuUsage >= 75
+        ? 'warning'
+        : 'stable';
+  const systemRiskLabel = systemRisk === 'attention'
+    ? '주의 필요'
+    : systemRisk === 'warning'
+      ? '부하 관찰'
+      : '정상 범위';
+  const readinessScore = sysInfo
+    ? Math.max(42, Math.min(96, 96 - errorCount * 14 - warningCount * 4 - (memoryUsagePct != null && memoryUsagePct >= 80 ? 10 : 0)))
+    : 28;
+
   const handleSend = () => {
     if (!symptom.trim() || isLoading || isZooming) return;
     const text = symptom.trim();
@@ -417,19 +445,19 @@ export default function ElectronDashboard({
 
         <div className="nd-system-health-grid" aria-label="핵심 시스템 상태">
           <article className="nd-system-health-card">
-            <span>CPU 사용률</span>
+            <span><Cpu size={13} /> CPU 사용률</span>
             <strong>{cpuUsage != null ? `${cpuUsage}%` : '수집 중'}</strong>
           </article>
           <article className="nd-system-health-card">
-            <span>메모리 점유</span>
+            <span><Activity size={13} /> 메모리 점유</span>
             <strong>{memoryUsagePct != null ? `${memoryUsagePct}%` : '수집 중'}</strong>
           </article>
           <article className="nd-system-health-card">
-            <span>디스크 I/O</span>
+            <span><ShieldCheck size={13} /> 디스크 I/O</span>
             <strong>{formatTransferRate(diskTraffic)}</strong>
           </article>
           <article className="nd-system-health-card">
-            <span>최근 오류</span>
+            <span><AlertTriangle size={13} /> 최근 오류</span>
             <strong>{errorCount}건</strong>
           </article>
         </div>
@@ -503,12 +531,46 @@ export default function ElectronDashboard({
         <section className="nd-landing-view nd-diagnose-page">
           <div className="nd-diagnose-main">
             <section className="nd-page-intro animate-fade-in-up">
-              <p className="nd-page-kicker">PC Doctor AI</p>
-              <h1 className="nd-page-headline">증상 입력</h1>
+              <div className="nd-archive-ticker" aria-hidden="true">
+                <span>실시간 상태 확인</span>
+                <span>이벤트 로그 반영</span>
+                <span>AI 원인 후보 정리</span>
+              </div>
+              <p className="nd-page-kicker">AI PC 진단</p>
+              <h1 className="nd-page-headline">지금 PC 증상을 알려주세요</h1>
               <p className="nd-page-description">
-                현재 PC에서 겪고 있는 증상을 자유롭게 설명해 주세요. AI가 시스템 텔레메트리 데이터와 함께 분석해 정확한 원인을 찾아드립니다.
+                현재 PC에서 겪는 증상을 입력하면 실시간 텔레메트리, 이벤트 로그, 프로세스 부하를 한 번에 묶어 원인 후보를 추적합니다.
               </p>
               {heroLead ? <p className="nd-page-helper">{heroLead}</p> : null}
+              <div className="nd-product-health-strip" aria-label="진단 준비 상태">
+                <article className={`nd-product-health-card ${systemRisk}`}>
+                  <span>현재 위험도</span>
+                  <strong>{systemRiskLabel}</strong>
+                </article>
+                <article className="nd-product-health-card">
+                  <span>진단 준비도</span>
+                  <strong>{readinessScore}%</strong>
+                </article>
+                <article className="nd-product-health-card">
+                  <span>수집 근거</span>
+                  <strong>{eventLogs.length} logs</strong>
+                </article>
+              </div>
+              <div className="nd-command-visual" aria-label="진단 대상 하드웨어 맵">
+                <div className="nd-command-visual-media">
+                  <img src="/pc-diagram.png" alt="PC 내부 하드웨어 진단 맵" />
+                  <span className="nd-archive-crosshair" aria-hidden="true" />
+                  <span className="nd-command-hotspot cpu">CPU</span>
+                  <span className="nd-command-hotspot gpu">GPU</span>
+                  <span className="nd-command-hotspot ram">RAM</span>
+                  <span className="nd-command-scanline" aria-hidden="true" />
+                </div>
+                <div className="nd-command-visual-readout">
+                  <span>진단 상태</span>
+                  <strong>{sysInfo ? '연결됨' : '대기 중'}</strong>
+                  <p>증상, 이벤트 로그, 프로세스 부하, 하드웨어 위치를 하나의 진단 리포트로 정리합니다.</p>
+                </div>
+              </div>
             </section>
 
             <section className="nd-diagnose-entry card-glass animate-spring-in">
@@ -766,27 +828,30 @@ export default function ElectronDashboard({
     <div className="nd-chat-shell nd-redesign-shell">
       <aside className="nd-rail nd-rail-workflow nd-redesign-sidebar">
         <div className="nd-rail-header nd-redesign-brand">
+          <div className="nd-redesign-brand-mark" aria-hidden="true">
+            <Sparkles size={18} />
+          </div>
           <div>
-            <strong className="nd-redesign-brand-title">PC Doctor AI</strong>
-            <p className="nd-redesign-brand-subtitle">AI 기반 실시간 진단</p>
+            <strong className="nd-redesign-brand-title">옆집 컴공생</strong>
+            <p className="nd-redesign-brand-subtitle">AI PC diagnosis</p>
           </div>
         </div>
 
         <nav className="nd-redesign-nav" aria-label="주요 메뉴">
           <button type="button" className={`nd-redesign-nav-item${activeTab === 'diagnose' ? ' active' : ''}`} onClick={() => setActiveTab('diagnose')}>
-            <span className="nd-redesign-nav-icon" aria-hidden="true">▣</span>
+            <span className="nd-redesign-nav-icon" aria-hidden="true"><Activity size={17} /></span>
             <span>증상 입력</span>
           </button>
           <button type="button" className="nd-redesign-nav-item" disabled aria-disabled="true">
-            <span className="nd-redesign-nav-icon" aria-hidden="true">◎</span>
+            <span className="nd-redesign-nav-icon" aria-hidden="true"><History size={17} /></span>
             <span>진단 기록</span>
           </button>
           <button type="button" className="nd-redesign-nav-item" onClick={() => setActiveTab('diagnose')}>
-            <span className="nd-redesign-nav-icon" aria-hidden="true">◇</span>
+            <span className="nd-redesign-nav-icon" aria-hidden="true"><Link2 size={17} /></span>
             <span>세션 연결</span>
           </button>
           <button type="button" className="nd-redesign-nav-item" onClick={() => setActiveTab('diagnose')}>
-            <span className="nd-redesign-nav-icon" aria-hidden="true">◌</span>
+            <span className="nd-redesign-nav-icon" aria-hidden="true"><BookOpen size={17} /></span>
             <span>사용 가이드</span>
           </button>
         </nav>
@@ -832,7 +897,7 @@ export default function ElectronDashboard({
 
         <div className="nd-rail-footer">
           <button type="button" className="nd-rail-util-button" aria-label="설정">
-            <span aria-hidden="true">⌘</span>
+            <span aria-hidden="true"><Settings size={15} /></span>
             <span>설정</span>
           </button>
           <button type="button" className="nd-rail-util-button" aria-label="고객 센터">
@@ -849,8 +914,14 @@ export default function ElectronDashboard({
       <div className="nd-chat-stage nd-redesign-stage">
         <header className="nd-chat-topbar nd-redesign-topbar">
           <div className="nd-redesign-search">
-            <span className="nd-redesign-search-icon" aria-hidden="true">⌕</span>
+            <span className="nd-redesign-search-icon" aria-hidden="true"><Search size={16} /></span>
             <input type="text" placeholder="진단 기록 및 증상 검색..." aria-label="진단 기록 및 증상 검색" />
+          </div>
+          <div className="nd-topbar-health-summary" aria-label="현재 시스템 상태">
+            <span className={`nd-topbar-risk-dot ${systemRisk}`} />
+            <strong>{systemRiskLabel}</strong>
+            <span>CPU {cpuUsage != null ? `${cpuUsage}%` : '—'}</span>
+            <span>MEM {memoryUsagePct != null ? `${memoryUsagePct}%` : '—'}</span>
           </div>
           <div className="nd-chat-actions">
             <button type="button" className="nd-toolbar-button">알림</button>

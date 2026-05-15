@@ -51,13 +51,35 @@
 
 ---
 
-## Phase 7-B — 라이브 카메라 가이드 모드
+## Phase 7-B — 라이브 카메라 가이드 모드 (CV 텀프로젝트 메인 쇼케이스)
 
 > BIOS 설정·Windows 설치 등 화면 작업을 카메라로 비추면 Gemini가 단계별 안내.
+> **CV 모듈 1/2/3 모두 이 Phase에서 통합 동작**. 자세한 모듈 명세는 `cv-modules.md`.
+
+### CV 파이프라인 통합 흐름
+
+```
+카메라 프레임 (RGBA Canvas)
+ ↓
+[모듈 3] 프레임 품질 게이트 — Laplacian variance + 밝기 통계 + Optical Flow
+   ↓ 통과       ↓ 거부
+   ↓           → 사용자 피드백 ("흔들렸어요" / "너무 어두워요")
+ ↓
+[모듈 2] 히스토그램 변화 감지 — 4 메트릭 후보 중 베스트(노트북에서 결정)
+   ↓ 3프레임 연속 변화 + 쿨다운 + isSendingRef=false
+ ↓
+[모듈 1] BIOS 화면 파이프라인 — Hough+Homography → CLAHE → Threshold → CC → Tesseract.js
+   ↓ 정면화 + OCR 텍스트
+ ↓
+Gemini Vision — 텍스트 + 원본 이미지 + 컨텍스트로 자연어 안내 생성
+ ↓
+SSE 스트리밍 → GuideBubble 타이핑 표시
+```
 
 **핵심 설계 원칙**:
 - rAF 루프 히스토그램 비교 → **연속 3프레임 변화 감지** 시만 Gemini 전송 (false positive 차단)
-- OpenCV: 변화 감지 + CLAHE 전처리만. 텍스트 인식은 Gemini Vision에 위임
+- OpenCV.js: **모듈 1/2/3 모두 OpenCV.js로 이식** (Python 노트북 검증 후)
+- Tesseract.js: 사전 학습 모델 inference만 사용 (학습/finetune 없음)
 - 세션 시작 즉시 `STATIC_FIRST_GUIDE[context]` 표시 → Gemini 응답 도착 시 교체
 - 프레임 전송 후 3단계 피드백: 📸 캡처됨 → ⏳ 분석 중+경과시간 → 응답 도착
 - 응답 도착 시 전송 당시 히스토그램 vs 현재 비교 → 유사도 < 0.7 시 stale guide 경고
@@ -82,3 +104,21 @@
 - 해결됨 → `POST /api/diagnosis/{id}/feedback (RESOLVED)` → 24시간 사후 확인 스케줄
 - 복합 원인 의심 → "이게 전부가 아닐 수 있어요" 버튼 → `previousDiagnosisId` 포함 재진단
 - 신뢰도 < 0.6 → "수리기사 상담 권장" 배너 자동 표시
+
+---
+
+## CV 텀프로젝트 — 스코프 결정
+
+본 저장소는 **CV 과목 텀프로젝트 (마감 2026-06-07)** 입니다.
+
+| 흐름 | 텀프로젝트 스코프 | 비고 |
+|---|---|---|
+| SW 진단 흐름 (Phase 5 완료) | ✅ 유지 | 풀스택 완성도 어필 |
+| Phase 6 / 7 / 7-B (CV 코어) | ⭐ 필수 | CV 모듈 1/2/3 통합 |
+| Phase 8 (BIOS 감지 + 비프음) | △ 시간 시 | CV 모듈 4 선택 |
+| Phase 9 (MCP) | 🚫 Future Work | README 명시 |
+| Phase 10 (DB 이력 + 사후) | 🚫 Future Work | README 명시 |
+| Phase 11 (세션 인증 QR) | 🚫 Future Work | README 명시 |
+
+> Phase 9~11의 워크플로 다이어그램 일부 화살표는 본 텀프로젝트 범위 밖.
+> 완전한 시퀀스 다이어그램은 `workflow-diagram.md` 참조 (장기 비전).

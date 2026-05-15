@@ -4,6 +4,24 @@
 
 ---
 
+## 🎯 CV 텀프로젝트 우선순위 (마감 2026-06-07)
+
+| 우선순위 | 항목 | 비고 |
+|---|---|---|
+| 🥇 P0 | Phase 6 + 7 + 7-B 기본 동작 | 카메라/PWA/라이브 가이드 |
+| 🥇 P0 | CV 모듈 1 (BIOS 파이프라인) | `notebooks/01-bios-pipeline.ipynb` |
+| 🥇 P0 | CV 모듈 2 (히스토그램 분석) | `notebooks/02-histogram-analysis.ipynb` |
+| 🥇 P0 | CV 모듈 3 (프레임 품질) | `notebooks/03-frame-quality.ipynb` |
+| 🥇 P0 | README + demo 영상 + ablation 시각화 | `evaluation-metrics.md` 양식 |
+| 🥈 P1 | Phase 8 + CV 모듈 4 (비프음) | 시간 여유 시 |
+| 🚫 P3 | Phase 9, 10, 11 | **Future Work 명시 — 구현 안 함** |
+
+상세 모듈 명세: `.claude/rules/cv-modules.md`
+작업 흐름: `.claude/rules/cv-workflow.md`
+평가 양식: `.claude/rules/evaluation-metrics.md`
+
+---
+
 ## 🔴 High Risk — Phase 시작 전 반드시 확인
 
 ### [ ] 0. API 비용 쿼터 설계 (Phase 1 전)
@@ -197,10 +215,65 @@
 | **3** | CPU 온도 null → Gemini 프롬프트 처리, **GPU 데이터 한계 명시** |
 | **4** | PowerShell async 변환 + JSON 배열 정규화, macOS log 대체 수집 |
 | **5** | ✅ 완료 — HypothesisTracker(해결됐나요 분기), 재현 모드(delta 계산), DiagnosisConfidence, 복합 원인 버튼, 베이스라인 이상 감지. PatternSelector·HW 에스컬레이션 제거(Phase 11 이관). USE_MOCK=true |
-| **6** | PWA HTTPS(ngrok), SW 캐시 버전 관리, OpenCV PRECACHE, **독립 진입 경로**, **오프라인 폴백**, **독립 모드 정확도 경고** |
-| **7** | OpenCV try/finally Mat.delete(), rAF cleanup, **ShootingGuide** |
-| **7-B** | fetch() 스트리밍, CLAHE/prevHist 수명 관리, isSendingRef, SseEmitter 60초, iOS 카메라 권한, **`[완료]` 버퍼 검사**, **정적 선행 안내**, **3단계 피드백 UI**, **3프레임 히스토그램**, **AbortController**, **stale guide 경고** |
-| **8** | **BIOS 자동 감지 + 수동 폴백**, MediaRecorder mimeType + AEC 비활성화 |
-| **9** | Spring AI BOM 버전 고정, MCP Silent Failure 대응 |
-| **10** | Docker PostgreSQL 연결 타이밍, **사후 확인 피드백 루프** |
-| **11** | **세션 연장 + 6자리 수동 입력 폴백**, 세션 인증 토큰 (QR + authToken) |
+| **6** ⭐ | PWA HTTPS(ngrok), SW 캐시 버전 관리, OpenCV PRECACHE, **독립 진입 경로**, **오프라인 폴백**, **독립 모드 정확도 경고** |
+| **7** ⭐ | OpenCV try/finally Mat.delete(), rAF cleanup, **ShootingGuide** |
+| **7-B** ⭐⭐ | fetch() 스트리밍, CLAHE/prevHist 수명 관리, isSendingRef, SseEmitter 60초, iOS 카메라 권한, **`[완료]` 버퍼 검사**, **정적 선행 안내**, **3단계 피드백 UI**, **3프레임 히스토그램**, **AbortController**, **stale guide 경고**, **CV 모듈 1/2/3 통합** |
+| **8** | **BIOS 자동 감지 + 수동 폴백**, MediaRecorder mimeType + AEC 비활성화, **CV 모듈 4 (선택)** |
+| **9** 🔽 | (Future Work — 구현 안 함) |
+| **10** 🔽 | (Future Work — 구현 안 함) |
+| **11** 🔽 | (Future Work — 구현 안 함) |
+
+---
+
+## 🟣 CV 모듈 체크리스트 (텀프로젝트 코어)
+
+### [ ] CV-0. Python 노트북 환경 셋업
+- `cd notebooks && python -m venv .venv && pip install -r requirements.txt`
+- Windows: Tesseract 별도 설치 (https://github.com/UB-Mannheim/tesseract/wiki)
+- 한글 폰트 깨짐 방지: `plt.rcParams['font.family'] = 'Pretendard'`
+
+### [ ] CV-1. 데이터셋 수집
+- BIOS 화면 사진 20~30장 (vendor 4종 × 각도 4종)
+- 라이브 영상 시나리오 5종 (각 30~60초)
+- 품질 mix 정지 사진 200장
+- (선택) 비프음 wav 10~20개
+- `data/<category>/ground-truth.csv` 라벨링
+
+### [ ] CV-M1. 모듈 1 — BIOS 화면 End-to-End 파이프라인
+- 노트북: Hough Line → Homography → CLAHE → Threshold → CC → Tesseract
+- Ablation: 단계 on/off 16조합, Threshold 3종, CLAHE 그리드 서치, 각도별
+- 산출: `docs/cv-pipeline/bios-pipeline-stages.png`, `docs/ablation-results/bios-*.csv,png`
+- 이식: `src/lib/cv/biosPipeline.ts`, `src/hooks/useBiosPipeline.ts`
+- 통합: `src/components/mobile/LiveGuideMode.tsx` Gemini 호출 직전 게이트
+- npm: `tesseract.js` 추가
+
+### [ ] CV-M2. 모듈 2 — 라이브 변화 감지 정량 분석
+- 노트북: 4 메트릭 × 3 컬러 × 3 윈도우 = 36 조합 측정
+- 시나리오 5종 ROC 곡선
+- 산출: `docs/ablation-results/histogram-heatmap.png`, `histogram-roc-per-scenario.png`
+- 이식: `src/lib/cv/changeDetection.ts` 베스트 파라미터 const
+- 통합: `src/hooks/useLiveFrameCapture.ts` 파라미터 반영
+
+### [ ] CV-M3. 모듈 3 — 프레임 품질 사전 필터
+- 노트북: Laplacian vs FFT vs Sobel 블러 검출 비교
+- 임계값 그리드 서치 → Precision/Recall 트레이드오프
+- 비용 절감 시뮬레이션 (API 호출 감소율)
+- 산출: `docs/ablation-results/quality-*.png,csv`
+- 이식: `src/lib/cv/frameMetrics.ts` 보강 (이미 골격 있음)
+- 통합: `useLiveFrameCapture.ts` 히스토그램 비교 직전 게이트
+
+### [ ] CV-M4. 모듈 4 — 비프음 스펙트로그램 (선택)
+- 노트북: librosa 멜 스펙트로그램 → cv.adaptiveThreshold → matchTemplate / DTW
+- 노이즈 강건성 SNR 30/20/10dB
+- 산출: `docs/ablation-results/beep-*.png,csv`
+- 이식: `src/lib/cv/beepClassifier.ts`, `src/hooks/useBeepClassifier.ts`
+- 통합: `src/components/mobile/AudioCapture.tsx`
+
+### [ ] CV-R. README 작성 (점수의 60%)
+- Demo 영상 30~60초 + 모듈별 GIF 3개
+- 시스템 아키텍처 mermaid 다이어그램
+- 모듈별: 알고리즘 다이어그램 + 단계 갤러리 + ablation 표 + 선택 근거
+- 한계 및 Future Work 섹션
+- References 섹션 (URL 10개 이상, 알고리즘 원논문 인용)
+- LICENSE (MIT 권장)
+- 양식 정본: `.claude/rules/evaluation-metrics.md`

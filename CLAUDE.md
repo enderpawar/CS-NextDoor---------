@@ -9,6 +9,10 @@
 @.claude/rules/workflow.md
 @.claude/rules/api-endpoints.md
 @.claude/rules/figma-design-system.md
+@.claude/rules/cv-modules.md
+@.claude/rules/cv-workflow.md
+@.claude/rules/evaluation-metrics.md
+@.claude/rules/codex-claude-handoff.md
 
 ## 규칙 우선순위
 
@@ -20,6 +24,34 @@
 4. **`reference/`** — 배경 자료 (on-demand): `design-system.md` (Figma 원본 분석), `Market_report.md` (시장 조사)
 
 > 하위 문서에 상위와 다른 내용이 있으면 상위가 정본입니다. 하위 문서는 상위의 요약·예시일 뿐이며 독립 소스가 아닙니다.
+
+---
+
+## 🎯 컴퓨터 비전 과목 텀프로젝트 — 30점 만점 전략
+
+본 저장소는 **CV 과목 텀프로젝트 (마감 2026-06-07)** 입니다.
+평가축: 아이디어/창의성 + 완성도 + **CV 알고리즘 깊이** (상대평가, 30점).
+
+### 사용자 결정 사항 (변경 금지)
+- ❌ **딥러닝 학습 절대 금지** — 시간 부족 + 학습 경험 부족
+- ✅ **클래식 OpenCV 알고리즘으로 CV 깊이 어필**
+- ✅ **Tesseract.js inference는 허용** (사전 학습 모델, finetune 없음)
+- ✅ **Codex + Claude 병행 작업** (`codex-claude-handoff.md` 분담 규칙)
+
+### 전략 요약
+1. **Python(Jupyter)으로 알고리즘 검증 → OpenCV.js로 이식** — `cv-workflow.md`
+2. **클래식 CV 모듈 3개 + 정량 ablation** — `cv-modules.md`
+3. **README 품질이 점수의 60%** — `evaluation-metrics.md`
+4. **Phase 9~11은 후순위 (Future Work로 README 명시)** — `implementation-checklist.md`
+
+### 핵심 CV 모듈 (필수)
+| 우선순위 | 모듈 | 통합 위치 |
+|---|---|---|
+| 🥇 P0 | 모듈 1 — BIOS 화면 End-to-End 파이프라인 (Hough + Homography + CLAHE + Threshold + OCR) | Phase 7-B |
+| 🥈 P1 | 모듈 2 — 라이브 프레임 변화 감지 정량 분석 (4×3×3 매트릭스) | Phase 7-B |
+| 🥉 P2 | 모듈 3 — 프레임 품질 사전 필터 (Laplacian/Optical Flow) | Phase 7-B |
+
+선택: 모듈 4 (비프음 스펙트로그램, Phase 8) / 5 (카메라 캘리브레이션) / 6 (Hough Circle 커패시터) / 7 (이미지 스티칭).
 
 ---
 
@@ -58,10 +90,15 @@
 nextdoor-cs/
 ├── electron/main.ts, preload.ts
 │   └── modules/ systemMonitor.ts, processAnalyzer.ts, eventLogReader.ts, diskHealth.ts
-├── pwa/public/ manifest.json, sw.js        ← sw.js는 Service Worker — TS 빌드 대상 제외 
+├── pwa/public/ manifest.json, sw.js        ← sw.js는 Service Worker — TS 빌드 대상 제외
 ├── src/
 │   ├── types/                              ← 공유 타입 정의 (IPC, API 응답, 진단 도메인)
 │   │   └── index.ts
+│   ├── lib/cv/                             ← CV 알고리즘 모듈 (OpenCV.js 이식 결과)
+│   │   ├── frameMetrics.ts                 (기존, 모듈 3 기반)
+│   │   ├── biosPipeline.ts                 (모듈 1)
+│   │   ├── changeDetection.ts              (모듈 2)
+│   │   └── beepClassifier.ts               (모듈 4, 선택)
 │   ├── components/
 │   │   ├── desktop/  SystemDashboard.tsx, ProcessList.tsx, EventLogViewer.tsx, DiskHealthCard.tsx
 │   │   │             HypothesisTracker.tsx, PatternSelector.tsx
@@ -72,7 +109,26 @@ nextdoor-cs/
 │   ├── hooks/ useRuntimeMode.ts, useSystemInfo.ts, useOpenCV.ts, useFpsMonitor.ts
 │   │          useReproductionMonitor.ts, usePostDiagnosis.ts
 │   │          useLiveFrameCapture.ts, useGeminiLiveGuide.ts
+│   │          useBiosPipeline.ts (모듈 1)
 │   └── api/diagnosisApi.ts
+├── notebooks/                              ← Python(Jupyter) CV 실험 — README/이식의 원천
+│   ├── 01-bios-pipeline.{md,ipynb}         (모듈 1)
+│   ├── 02-histogram-analysis.{md,ipynb}    (모듈 2)
+│   ├── 03-frame-quality.{md,ipynb}         (모듈 3)
+│   ├── 04-beep-spectrogram.{md,ipynb}      (모듈 4, 선택)
+│   └── requirements.txt
+├── data/                                   ← 테스트 데이터셋 (.gitignore로 바이너리 제외)
+│   ├── bios/{ami,award,phoenix,other}/     + ground-truth.csv
+│   ├── motherboard/                        + ground-truth.csv
+│   ├── beep/<pattern>/                     + ground-truth.csv
+│   └── live-frames/<scenario>/             + ground-truth.csv
+├── docs/
+│   ├── architecture.md                     ← mermaid 다이어그램 (README 임베드)
+│   ├── cv-pipeline/                        ← 알고리즘 단계별 시각 갤러리 PNG
+│   ├── ablation-results/                   ← 정량 평가 결과 CSV/PNG
+│   ├── cv-harness.md                       (기존)
+│   └── snippets.md                         (기존)
+├── .claude/handoff/                        ← Codex ↔ Claude 인수인계 메모
 └── backend/src/main/java/com/nextdoorcs/
     ├── controller/ DiagnosisController, SessionController, GuideController
     ├── service/    DiagnosisService, GeminiService, LiveGuideService
@@ -92,13 +148,15 @@ nextdoor-cs/
 | **3** | Electron | 시스템 모니터 (CPU/GPU/메모리/온도) | `systemMonitor.ts`, `SystemDashboard.tsx` |
 | **4** | Electron | 프로세스 + 이벤트 로그 분석 | `processAnalyzer.ts`, `eventLogReader.ts` |
 | **5** | Electron | SW 진단 풀 플로우 (가설 추적·재현·패턴·신뢰도) | `HypothesisTracker.tsx`, `ReproductionMode.tsx`, `PatternSelector.tsx`, `DiagnosisConfidence.tsx` |
-| **6** | PWA | PWA 셋업 + 독립 모드 + 오프라인 폴백 | `manifest.json`, `sw.js`, `CameraView.tsx` |
-| **7** | PWA | OpenCV 오버레이 + 영상 분석 + 촬영 가이드 | `useOpenCV.ts`, `VideoAnalysis.tsx`, `ShootingGuide.tsx` |
-| **7-B** | PWA | 라이브 카메라 가이드 모드 (BIOS/Windows 단계별 안내) | `LiveGuideMode.tsx`, `useLiveFrameCapture.ts`, `useGeminiLiveGuide.ts`, `GuideController.java` |
-| **8** | PWA | BIOS 자동 감지 + 오디오 진단 | `BiosTypeSelector.tsx`, `AudioCapture.tsx` |
-| **9** | 공통 | MCP 매뉴얼 툴 연동 | `ManualToolProvider.java`, `RepairAgent.java` |
-| **10** | 공통 | DB 이력 + 지식베이스 + 사후 확인 | `DiagnosisHistory.java`, `SolutionKnowledge.java`, `usePostDiagnosis.ts` |
-| **11** | 공통 | 크로스 플랫폼 세션 (QR·연장·수동 입력·인증) | `SessionController.java`, `QRDisplay.tsx`, `SessionManager.tsx` |
+| **6** ⭐ | PWA | PWA 셋업 + 독립 모드 + 오프라인 폴백 | `manifest.json`, `sw.js`, `CameraView.tsx` |
+| **7** ⭐ | PWA | OpenCV 오버레이 + 영상 분석 + 촬영 가이드 | `useOpenCV.ts`, `VideoAnalysis.tsx`, `ShootingGuide.tsx` |
+| **7-B** ⭐⭐ | PWA | 라이브 카메라 가이드 모드 + **모듈 1/2/3 통합** | `LiveGuideMode.tsx`, `biosPipeline.ts`, `useLiveFrameCapture.ts`, `useGeminiLiveGuide.ts`, `GuideController.java` |
+| **8** | PWA | BIOS 자동 감지 + 오디오 진단 (+모듈 4 선택) | `BiosTypeSelector.tsx`, `AudioCapture.tsx` |
+| **9** 🔽 | 공통 | (CV 무관 — Future Work) MCP 매뉴얼 툴 연동 | `ManualToolProvider.java`, `RepairAgent.java` |
+| **10** 🔽 | 공통 | (CV 무관 — Future Work) DB 이력 + 지식베이스 + 사후 확인 | `DiagnosisHistory.java`, `SolutionKnowledge.java`, `usePostDiagnosis.ts` |
+| **11** 🔽 | 공통 | (CV 무관 — Future Work) 크로스 플랫폼 세션 (QR·연장·수동 입력·인증) | `SessionController.java`, `QRDisplay.tsx`, `SessionManager.tsx` |
+
+> ⭐ = CV 텀프로젝트 평가 핵심. ⭐⭐ = 메인 쇼케이스. 🔽 = 마감 후 또는 시간 여유 시.
 
 ---
 
@@ -114,13 +172,17 @@ nextdoor-cs/
 | **3** | ✅ 완료 — CPU 온도·사용률·메모리·GPU(한계 명시)·디스크 I/O 실시간 수집 + SystemDashboard 렌더링 |
 | **4** | ✅ 완료 — processAnalyzer + eventLogReader 수집, ProcessList(CPU/메모리 정렬 토글) + EventLogViewer(에러/경고) 렌더링 |
 | **5** | ✅ 완료 — 3단계 UI(증상입력→가설추적→재현모드) + 줌 전환 애니메이션 + 풀스크린 채팅뷰 + HypothesisTracker(해결됐나요 분기 포함) + 재현 모드(베이스라인 저장·delta 계산·결과 해석) + DiagnosisConfidence(< 0.6 배너) + 베이스라인 이상 감지 + 완료 화면 + 복합 원인 버튼. PatternSelector·HW 에스컬레이션은 Phase 11로 이관. 백엔드 엔드포인트 미구현(USE_MOCK=true). 테스트 54개 |
-| **6** | 🔲 미시작 |
-| **7** | 🔲 미시작 |
-| **7-B** | 🔲 미시작 |
-| **8** | 🔲 미시작 |
-| **9** | 🔲 미시작 |
-| **10** | 🔲 미시작 |
-| **11** | 🔲 미시작 |
+| **6** ⭐ | 🔶 진행 중 — manifest.json·sw.js 기존 완비. PwaPage.tsx·mobile.css 완성. App.tsx 연결은 Codex 리디자인 완료 후 |
+| **7** ⭐ | 🔶 진행 중 — useOpenCV.ts·ShootingGuide.tsx·CameraView 통합(LiveGuideMode 내부) 완성. 별도 VideoAnalysis 컴포넌트는 Phase 8에서 |
+| **7-B** ⭐⭐ | 🔶 진행 중 — LiveGuideMode.tsx·useGeminiLiveGuide.ts·useLiveFrameCapture.ts·모듈1/2/3 이식 완성. Python 노트북 검증 + ablation 후 BEST_PARAMS 업데이트 필요 |
+| **8** | 🔲 미시작 — 오디오 진단 (모듈 4 선택) |
+| **9** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
+| **10** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
+| **11** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
+| **CV 모듈 1** (BIOS 파이프라인) | 🔶 진행 중 — `src/lib/cv/biosPipeline.ts` OpenCV.js 이식 완성. `notebooks/01-bios-pipeline.ipynb` Python 검증 + ablation 필요 (Codex) |
+| **CV 모듈 2** (히스토그램 분석) | 🔶 진행 중 — `src/lib/cv/changeDetection.ts` 4 메트릭 이식 완성. `notebooks/02-histogram-analysis.ipynb` 36조합 ablation 필요 (Codex) |
+| **CV 모듈 3** (프레임 품질) | 🔶 진행 중 — `src/lib/cv/frameMetrics.ts` Laplacian variance + 밝기 통계 완성. `notebooks/03-frame-quality.ipynb` 임계값 튜닝 필요 (Codex) |
+| **CV 모듈 4** (비프음, 선택) | 🔲 미시작 — `notebooks/04-beep-spectrogram.ipynb` |
 
 ---
 
@@ -134,9 +196,16 @@ npm run electron:build                  # → dist/*.exe / *.dmg
 npm run pwa:build                       # HTTPS 필수
 git push origin main                    # Render 자동 배포
 # 환경변수: GEMINI_API_KEY, SPRING_DATASOURCE_URL (Supabase), ALLOWED_ORIGINS
+
+# CV 노트북 환경
+cd notebooks
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+jupyter lab
 ```
 
 > Phase별 상세 검증: `/implement-phase <번호>`
+> CV 모듈 작업 흐름: `.claude/rules/cv-workflow.md`
 
 ---
 
@@ -173,3 +242,9 @@ git push origin main                    # Render 자동 배포
 - **Live Guide — 비용 제어**: 히스토그램 유사도 임계값 0.92 + 최소 전송 간격 2초 + 대화 히스토리 최대 6턴. 세션 최대 수명 15분.
 - **Live Guide — SSE**: `SseEmitter` 타임아웃 60초. Gemini 응답에 `[완료]` 태그 포함 시 세션 자동 종료. EventSource는 GET만 지원 → fetch() 스트리밍으로 POST 본문 전송.
 - **Live Guide — 동시 전송 방지**: `isSendingRef`로 이전 응답 완료 전 새 프레임 전송 차단. 완료 전 변화 감지는 무시.
+- **CV 텀프로젝트 — 딥러닝 금지**: 사용자 결정. 클래식 OpenCV + Tesseract.js inference만. 모델 학습/finetune 절대 금지.
+- **CV 작업 흐름**: Python(Jupyter) 검증 → OpenCV.js 이식 (`cv-workflow.md`). README 그래프는 Python에서 생성.
+- **CV 모듈 통합 위치**: 모듈 1/2/3 모두 Phase 7-B `LiveGuideMode.tsx`에서 호출 (Gemini 호출 직전 전처리 게이트).
+- **OpenCV.js 출력 인자**: Python `dst = cv2.foo(src)` ≠ OpenCV.js `cv.foo(src, dst)`. 매번 출력 Mat을 별도 생성 + try/finally `.delete()`.
+- **데이터 라이선스**: YouTube BIOS 화면 캡처 사용 시 README References에 URL + 채널명 명시 (카피 감점 -30점 회피).
+- **Codex/Claude 분담**: Python 노트북은 Codex 우선, OpenCV.js 이식·컴포넌트 통합은 Claude 우선. 인수인계는 `.claude/handoff/` 사용.
