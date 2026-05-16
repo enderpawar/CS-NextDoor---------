@@ -1,4 +1,4 @@
-name: Vercel Production Deployment
+name: Frontend Build Check
 
 on:
   push:
@@ -7,11 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,14 +19,8 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@54.1.0
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Pull Vercel environment
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Build
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Deploy
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build PWA
+        run: npm run pwa:build
