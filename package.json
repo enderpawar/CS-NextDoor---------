@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:cv": "vitest run src/lib/cv",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "screenshot": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "@stomp/stompjs": "^7.0.0",
@@ -45,6 +46,7 @@
     "electron": "^30.0.6",
     "electron-builder": "^24.13.3",
     "jsdom": "^29.0.1",
+    "playwright": "^1.60.0",
     "typescript": "^5.4.5",
     "vite": "^5.2.11",
     "vitest": "^4.1.2",

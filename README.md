@@ -15,6 +15,18 @@ AI 기반 PC 하드웨어/소프트웨어 진단 서비스.
 [데모 영상/GIF — 제출 전 추가 예정]
 ```
 
+### PWA 화면 스크린샷
+
+| PWA 홈 (독립 모드) | GuideContextSelector | ShootingGuide |
+|:---:|:---:|:---:|
+| ![PWA Home](docs/screenshots/01-pwa-home.png) | ![Guide Context](docs/screenshots/02-live-guide-context.png) | ![Shooting Guide](docs/screenshots/03-shooting-guide.png) |
+
+| 라이브 가이드 — 카메라 뷰 | 비프음 진단 | BIOS 제조사 선택 |
+|:---:|:---:|:---:|
+| ![Live Guide Camera](docs/screenshots/04-live-guide-camera.png) | ![Audio Capture](docs/screenshots/05-audio-capture.png) | ![BIOS Selector](docs/screenshots/06-bios-type-selector.png) |
+
+> Electron 데스크톱 UI는 실제 Electron 앱 실행 환경에서만 동작합니다 (`npm run electron:dev`).
+
 ---
 
 ## 🎯 프로젝트 소개
