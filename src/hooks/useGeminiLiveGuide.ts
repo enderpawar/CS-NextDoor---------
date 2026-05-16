@@ -13,8 +13,8 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { GuideContext, GuideSession, GuideMessage } from '../types';
+import { API_BASE_URL } from '../api/config';
 
-const API_BASE     = 'http://localhost:8080';
 const MAX_HISTORY  = 6;   // 최대 N턴 슬라이딩 히스토리 (토큰 누적 방지)
 const SESSION_TTL  = 15 * 60 * 1000;   // 15분 (ms)
 
@@ -49,7 +49,7 @@ export function useGeminiLiveGuide() {
     if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
     const sid = session?.sessionId;
     if (sid) {
-      fetch(`${API_BASE}/api/guide/${sid}`, { method: 'DELETE' }).catch(() => {});
+      fetch(`${API_BASE_URL}/api/guide/${sid}`, { method: 'DELETE' }).catch(() => {});
     }
     setSession(s => (s ? { ...s, status: 'DONE' } : null));
     historyRef.current = [];
@@ -62,7 +62,7 @@ export function useGeminiLiveGuide() {
 
   // ── 세션 시작 ───────────────────────────────────────────────────────────────
   const startSession = useCallback(async (context: GuideContext): Promise<void> => {
-    const res = await fetch(`${API_BASE}/api/guide/start`, {
+    const res = await fetch(`${API_BASE_URL}/api/guide/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ context }),
@@ -81,7 +81,7 @@ export function useGeminiLiveGuide() {
 
   // ── 프레임 전송 + SSE 스트리밍 ─────────────────────────────────────────────
   const sendFrame = useCallback(
-    async (base64: string, histSnapshot: any): Promise<void> => {
+    async (base64: string, histSnapshot: any, cvSummary?: string): Promise<void> => {
       if (!session || isSendingRef.current) {
         histSnapshot?.delete();
         return;
@@ -108,13 +108,14 @@ export function useGeminiLiveGuide() {
 
       try {
         const response = await fetch(
-          `${API_BASE}/api/guide/${session.sessionId}/frame`,
+          `${API_BASE_URL}/api/guide/${session.sessionId}/frame`,
           {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               frameBase64: base64,
               history: historyRef.current.slice(-MAX_HISTORY),
+              cvSummary,
             }),
             signal: abortRef.current.signal,
           },

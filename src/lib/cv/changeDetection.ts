@@ -3,7 +3,7 @@
  *
  * OpenCV.js cv.compareHist를 이용한 히스토그램 유사도 비교.
  * 4 메트릭 × 3 컬러 공간 × 3 윈도우 ablation은 notebooks/02-histogram-analysis.ipynb 참조.
- * BEST_PARAMS는 노트북 실험 결과 반영 예정 (현재: CORREL + GRAY + window=3).
+ * BEST_PARAMS는 notebooks/02-histogram-analysis.ipynb synthetic ablation 결과 반영.
  *
  * References:
  *   - Swain & Ballard (1991) "Color Indexing"
@@ -22,14 +22,15 @@ export type HistMetric =
 export type ColorSpace = 'GRAY' | 'HSV' | 'RGB';
 
 /**
- * 노트북 ablation 결과로 업데이트 예정.
- * 현재: CORREL + GRAY + 3프레임 연속 + threshold=0.92
+ * 2026-05-16 synthetic ablation:
+ * CORREL + GRAY + 5프레임 연속 + threshold=0.9999, mean F1=0.7031.
+ * 실제 촬영 데이터셋 수집 후 재튜닝 가능.
  */
 export const BEST_PARAMS = {
   metric:      'HISTCMP_CORREL' as HistMetric,
   colorSpace:  'GRAY' as ColorSpace,
-  windowSize:  3,
-  threshold:   0.92,
+  windowSize:  5,
+  threshold:   0.9999,
 } as const;
 
 function metricToOpenCV(m: HistMetric): number {
@@ -92,6 +93,53 @@ export function computeHsvHistogram(rgba: ImageData): any {
     hsv.delete();
     mask.delete();
     matVec.delete();
+  }
+}
+
+/**
+ * RGBA ImageData → 정규화된 RGB 3채널 결합 히스토그램 Mat
+ */
+export function computeRgbHistogram(rgba: ImageData): any {
+  const src     = cv.matFromImageData(rgba);
+  const rgb     = new cv.Mat();
+  const hist    = new cv.Mat();
+  const channelHists: any[] = [];
+  const mask    = new cv.Mat();
+  const matVec  = new cv.MatVector();
+  const histVec = new cv.MatVector();
+  try {
+    cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
+    matVec.push_back(rgb);
+    for (let channel = 0; channel < 3; channel += 1) {
+      const channelHist = new cv.Mat();
+      cv.calcHist(matVec, [channel], mask, channelHist, [64], [0, 256]);
+      channelHists.push(channelHist);
+      histVec.push_back(channelHist);
+    }
+    cv.vconcat(histVec, hist);
+    cv.normalize(hist, hist, 0, 1, cv.NORM_MINMAX);
+    return hist;
+  } finally {
+    src.delete();
+    rgb.delete();
+    mask.delete();
+    matVec.delete();
+    histVec.delete();
+    channelHists.forEach(channelHist => channelHist.delete());
+  }
+}
+
+export function computeHistogram(
+  rgba: ImageData,
+  colorSpace: ColorSpace = BEST_PARAMS.colorSpace,
+): any {
+  switch (colorSpace) {
+    case 'GRAY':
+      return computeGrayHistogram(rgba);
+    case 'HSV':
+      return computeHsvHistogram(rgba);
+    case 'RGB':
+      return computeRgbHistogram(rgba);
   }
 }
 

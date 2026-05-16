@@ -17,11 +17,12 @@ declare const cv: any;
 import { useRef, useCallback, useEffect } from 'react';
 import { analyzeFrame } from '../lib/cv/frameMetrics';
 import {
-  computeGrayHistogram,
+  computeHistogram,
   compareHist,
   isSceneChanged,
   BEST_PARAMS,
 } from '../lib/cv/changeDetection';
+import { preprocessBiosFrameForGuide } from '../lib/cv/biosPipeline';
 import type { CvFrameInput } from '../types';
 
 interface UseLiveFrameCaptureOptions {
@@ -29,7 +30,7 @@ interface UseLiveFrameCaptureOptions {
   videoRef:         React.RefObject<HTMLVideoElement>;
   cvReady:          boolean;
   isSendingRef:     React.MutableRefObject<boolean>;
-  onFrameChange:    (base64: string, histSnapshot: any) => void;
+  onFrameChange:    (base64: string, histSnapshot: any, cvSummary: string) => void;
   onQualityFeedback?: (guidanceText: string) => void;
   cooldownMs?:      number;
   histThreshold?:   number;
@@ -93,7 +94,7 @@ export function useLiveFrameCapture({
     // ── [모듈 2] 히스토그램 변화 감지 ────────────────────────────────────────
     let hist: any;
     try {
-      hist = computeGrayHistogram(rgba);
+      hist = computeHistogram(rgba, BEST_PARAMS.colorSpace);
     } catch {
       rafRef.current = requestAnimationFrame(processFrame);
       return;
@@ -115,15 +116,39 @@ export function useLiveFrameCapture({
       if (changed) {
         changeCountRef.current++;
         // 연속 3프레임 모두 변화 시에만 전송 (false positive — 손 떨림/Rolling Shutter 차단)
-        if (changeCountRef.current >= 3) {
+        if (changeCountRef.current >= BEST_PARAMS.windowSize) {
           changeCountRef.current = 0;
           prevHistRef.current.delete();
           prevHistRef.current = hist.clone();
           lastSentRef.current = now;
 
+          let base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
+          let cvSummary = [
+            `qualityScore=${metrics.qualityScore}`,
+            `laplacianVariance=${metrics.laplacianVariance.toFixed(2)}`,
+            `brightnessMean=${metrics.brightnessMean.toFixed(3)}`,
+            `coverageRatio=${metrics.coverageRatio.toFixed(3)}`,
+            `histMetric=${BEST_PARAMS.metric}`,
+            `histColorSpace=${BEST_PARAMS.colorSpace}`,
+            `histScore=${score.toFixed(4)}`,
+            `histWindow=${BEST_PARAMS.windowSize}`,
+          ].join(', ');
+
+          try {
+            const preprocessed = preprocessBiosFrameForGuide(rgba);
+            base64 = preprocessed.canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? base64;
+            cvSummary = [
+              cvSummary,
+              `biosRectified=${preprocessed.rectified}`,
+              `biosTextRegions=${preprocessed.textRegionCount}`,
+              `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
+            ].join(', ');
+          } catch {
+            cvSummary = `${cvSummary}, biosPreprocess=failed`;
+          }
+
           const histSnapshot = hist.clone();   // caller(.LiveGuideMode)가 delete 책임
-          const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
-          onFrameChange(base64, histSnapshot);
+          onFrameChange(base64, histSnapshot, cvSummary);
         }
       } else {
         changeCountRef.current = 0;  // 변화 없는 프레임 1개라도 끼이면 리셋

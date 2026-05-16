@@ -65,6 +65,7 @@ describe('CV frame metrics harness', () => {
 
   it('rejects small target regions as too far', () => {
     const metrics = analyzeFrame(squareFrame('tiny-roi', 4), undefined, {
+      minBrightness: 0.05,
       minCoverageRatio: 0.04,
     });
     expect(metrics.guidance).toBe('too_far');

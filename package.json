@@ -1,6 +1,8 @@
 {
   "name": "nextdoor-cs",
   "version": "0.1.0",
+  "description": "AI PC hardware and software diagnosis MVP",
+  "author": "NextDoor CS",
   "private": true,
   "main": "dist/electron/main.js",
   "scripts": {
@@ -10,7 +12,7 @@
     "electron:compile": "tsc -p tsconfig.electron.json",
     "electron:dev": "tsc -p tsconfig.electron.json && concurrently -k -n VITE,TSC,ELECTRON \"vite --mode electron --port 3000\" \"tsc -p tsconfig.electron.json --watch\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "vite build --mode electron && tsc -p tsconfig.electron.json && electron-builder",
-    "backend:dev": "cd backend && (export $(grep -v '^#' ../.env | xargs) 2>/dev/null; ./mvnw spring-boot:run)",
+    "backend:dev": "cd backend && mvnw.cmd spring-boot:run",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:cv": "vitest run src/lib/cv",
@@ -61,7 +63,8 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "public/icons/icon-256.png"
+      "icon": "public/icons/icon-256.png",
+      "signAndEditExecutable": false
     },
     "mac": {
       "target": "dmg",

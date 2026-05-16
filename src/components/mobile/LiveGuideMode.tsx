@@ -51,12 +51,12 @@ export default function LiveGuideMode() {
 
   // ── 프레임 변화 감지 후 전송 ────────────────────────────────────────────────
   const handleFrameChange = useCallback(
-    async (base64: string, histSnapshot: any) => {
+    async (base64: string, histSnapshot: any, cvSummary: string) => {
       capturedHistRef.current?.delete();
       capturedHistRef.current = histSnapshot?.clone?.() ?? null;
 
       try {
-        await guide.sendFrame(base64, histSnapshot);
+        await guide.sendFrame(base64, histSnapshot, cvSummary);
       } catch {
         // sendFrame 내부에서 이미 처리됨
       }

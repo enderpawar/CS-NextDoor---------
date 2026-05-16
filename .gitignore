@@ -4,7 +4,7 @@ release/
 .env
 .env.local
 backend/target/
-backend/.mvn/
+backend/.mvn/wrapper/maven-wrapper.jar
 *.class
 *.log
 

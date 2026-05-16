@@ -10,9 +10,9 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { BiosType, DiagnosisResponse, RecordingState } from '../../types';
+import { API_BASE_URL } from '../../api/config';
 import '../../styles/mobile.css';
 
-const API_BASE    = 'http://localhost:8080';
 const MAX_SEC     = 10;   // 최대 녹음 시간
 
 interface Props {
@@ -112,7 +112,7 @@ export default function AudioCapture({ biosType, symptom = '비프음 진단' }:
       form.append('symptom', symptom);
       form.append('biosType', biosType);
 
-      const res = await fetch(`${API_BASE}/api/diagnosis/hardware`, { method: 'POST', body: form });
+      const res = await fetch(`${API_BASE_URL}/api/diagnosis/hardware`, { method: 'POST', body: form });
       if (!res.ok) throw new Error(`서버 오류 ${res.status}`);
       const data: DiagnosisResponse = await res.json();
       setResult(data);

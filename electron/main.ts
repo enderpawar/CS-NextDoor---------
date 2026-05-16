@@ -19,7 +19,7 @@ function createWindow(): void {
   win.loadURL(
     isDev
       ? 'http://localhost:3000'
-      : `file://${path.join(__dirname, '../dist/index.html')}`,
+      : `file://${path.join(__dirname, '../renderer/index.html')}`,
   );
 
   // Phase 3: CPU 온도 포함 전체 스냅샷 2초마다 푸시

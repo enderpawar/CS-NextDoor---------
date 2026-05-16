@@ -2,8 +2,7 @@
 // /api/guide/* 엔드포인트 래핑
 
 import type { GuideContext, GuideMessage } from '../types';
-
-const API_BASE = 'http://localhost:8080';
+import { API_BASE_URL } from './config';
 
 export interface GuideStartResponse {
   sessionId: string;
@@ -14,7 +13,7 @@ export interface GuideStartResponse {
  * 가이드 세션 생성
  */
 export async function startGuideSession(context: GuideContext): Promise<GuideStartResponse> {
-  const res = await fetch(`${API_BASE}/api/guide/start`, {
+  const res = await fetch(`${API_BASE_URL}/api/guide/start`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ context }),
@@ -32,12 +31,13 @@ export async function sendGuideFrame(
   sessionId: string,
   frameBase64: string,
   history: GuideMessage[],
+  cvSummary?: string,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const res = await fetch(`${API_BASE}/api/guide/${sessionId}/frame`, {
+  const res = await fetch(`${API_BASE_URL}/api/guide/${sessionId}/frame`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ frameBase64, history }),
+    body:    JSON.stringify({ frameBase64, history, cvSummary }),
     signal,
   });
   if (!res.ok) throw new Error(`프레임 전송 실패: ${res.status}`);
@@ -49,5 +49,5 @@ export async function sendGuideFrame(
  * 가이드 세션 종료
  */
 export async function deleteGuideSession(sessionId: string): Promise<void> {
-  await fetch(`${API_BASE}/api/guide/${sessionId}`, { method: 'DELETE' });
+  await fetch(`${API_BASE_URL}/api/guide/${sessionId}`, { method: 'DELETE' });
 }

@@ -32,6 +32,11 @@ data/
 
 ## 수집 지침
 
+### 웹 테스트 데이터
+- `notebooks/fetch_commons_test_data.py`는 Wikimedia Commons의 라이선스 명시 파일을 내려받아 테스트 데이터로 배치합니다.
+- 내려받은 이미지 바이너리는 `.gitignore`로 추적하지 않고, 출처/저자/라이선스는 `data/web-test-sources.csv`에 기록합니다.
+- Commons rate limit이 걸릴 수 있으므로 스크립트는 이미 받은 파일을 보존하고 누락 파일만 재시도합니다.
+
 ### `data/bios/`
 - **최소 수량**: vendor당 5장, 총 20~30장
 - **다양성**: 각도(정면, 15°, 30°, 45°), 조명(밝음, 어두움), 거리

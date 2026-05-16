@@ -3,6 +3,11 @@
 노트북에서 생성된 정량 결과(CSV + PNG).
 **README의 점수 결정 요소는 여기 데이터의 양과 품질입니다.**
 
+> 2026-05-16 현재 결과는 `notebooks/generate_synthetic_cv_data.py` synthetic sanity dataset과
+> `notebooks/fetch_commons_test_data.py` Wikimedia Commons 웹 이미지 데이터 기반입니다.
+> 실제 직접 촬영 데이터가 추가되면 노트북 01~03을 다시 실행해 CSV/PNG와 TypeScript 상수를 재튜닝해야 합니다.
+> BIOS OCR ablation은 로컬 Tesseract 미설치 시 OCR 점수가 0으로 기록됩니다.
+
 ## 예정 파일
 
 ### 모듈 1 (BIOS 파이프라인)

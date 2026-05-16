@@ -53,7 +53,8 @@ public class GuideController {
         return liveGuideService.processFrame(
             sessionId,
             req.frameBase64(),
-            req.history()
+            req.history(),
+            req.cvSummary()
         );
     }
 

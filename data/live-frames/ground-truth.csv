@@ -1,1 +1,6 @@
-video_filename,event_timestamp_sec,event_type,notes
+video_filename,event_timestamp_sec,event_type,notes,scenario
+normal-change/normal-change.mp4,2.0,screen-change,synthetic true scene transition with normal-change perturbation,normal-change
+hand-shake/hand-shake.mp4,2.0,screen-change,synthetic true scene transition with hand-shake perturbation,hand-shake
+lighting/lighting.mp4,2.0,screen-change,synthetic true scene transition with lighting perturbation,lighting
+rolling-shutter/rolling-shutter.mp4,2.0,screen-change,synthetic true scene transition with rolling-shutter perturbation,rolling-shutter
+ios-autofocus/ios-autofocus.mp4,2.0,screen-change,synthetic true scene transition with ios-autofocus perturbation,ios-autofocus

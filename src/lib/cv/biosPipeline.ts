@@ -27,6 +27,13 @@ export interface BiosPipelineResult {
   processingMs: number;    // 처리 시간 (ms)
 }
 
+export interface BiosGuidePreprocessResult {
+  canvas: HTMLCanvasElement;
+  rectified: boolean;
+  textRegionCount: number;
+  processingMs: number;
+}
+
 // ablation 결과 반영 예정 — 노트북 실험 후 업데이트
 const CLAHE_CLIP  = 2.0;
 const CLAHE_GRID  = 8;
@@ -36,6 +43,83 @@ const MIN_CC_AREA = 50;   // Connected Component 최소 픽셀 수
 const HOUGH_VOTE  = 80;   // HoughLinesP accumulator threshold
 const HOUGH_MIN   = 50;   // 최소 선 길이 (px)
 const HOUGH_GAP   = 10;   // 최대 선 간격 (px)
+
+/**
+ * 라이브 가이드용 경량 모듈 1 전처리.
+ * OCR은 Gemini Vision이 담당하므로, 브라우저에서는 정면화 + CLAHE + 텍스트 ROI 계수만 수행한다.
+ */
+export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreprocessResult {
+  const t0 = performance.now();
+  let rectified = false;
+  let textRegionCount = 0;
+
+  const src       = cv.matFromImageData(rgba);
+  const gray      = new cv.Mat();
+  const edges     = new cv.Mat();
+  const lines     = new cv.Mat();
+  const enhanced  = new cv.Mat();
+  const binary    = new cv.Mat();
+  const labels    = new cv.Mat();
+  const stats     = new cv.Mat();
+  const centroids = new cv.Mat();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const clahe     = new cv.CLAHE(CLAHE_CLIP, new cv.Size(CLAHE_GRID, CLAHE_GRID));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let warped: any = null;
+
+  try {
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.Canny(gray, edges, 50, 150);
+    cv.HoughLinesP(edges, lines, 1, Math.PI / 180, HOUGH_VOTE, HOUGH_MIN, HOUGH_GAP);
+
+    const corners = extractQuadCorners(lines, rgba.width, rgba.height);
+    if (corners) {
+      const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.src.flat());
+      const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.dst.flat());
+      const H = cv.findHomography(srcPts, dstPts, cv.RANSAC, 5.0);
+      try {
+        if (H && !H.empty()) {
+          warped = new cv.Mat();
+          cv.warpPerspective(gray, warped, H, new cv.Size(rgba.width, rgba.height));
+          rectified = true;
+        }
+      } finally {
+        srcPts.delete();
+        dstPts.delete();
+        H?.delete();
+      }
+    }
+
+    const input = warped ?? gray;
+    clahe.apply(input, enhanced);
+    cv.adaptiveThreshold(
+      enhanced, binary, 255,
+      cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+      cv.THRESH_BINARY,
+      ADAPT_BLOCK, ADAPT_C,
+    );
+
+    cv.connectedComponentsWithStats(binary, labels, stats, centroids);
+    const numLabels: number = labels.rows > 0 ? (stats.rows - 1) : 0;
+    textRegionCount = countTextRegions(stats, numLabels);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = rgba.width;
+    canvas.height = rgba.height;
+    cv.imshow(canvas, enhanced);
+
+    return {
+      canvas,
+      rectified,
+      textRegionCount,
+      processingMs: performance.now() - t0,
+    };
+  } finally {
+    [src, gray, edges, lines, enhanced, binary, labels, stats, centroids].forEach(m => m.delete());
+    warped?.delete();
+    clahe.delete();
+  }
+}
 
 /**
  * RGBA ImageData → BIOS 화면 분석

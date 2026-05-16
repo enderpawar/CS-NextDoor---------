@@ -51,7 +51,8 @@ public class LiveGuideService {
     public SseEmitter processFrame(
             String sessionId,
             String frameBase64,
-            List<Map<String, String>> history) {
+            List<Map<String, String>> history,
+            String cvSummary) {
 
         GuideSession session = sessions.get(sessionId);
         if (session == null) throw new DiagnosisException("가이드 세션을 찾을 수 없어요: " + sessionId);
@@ -60,7 +61,7 @@ public class LiveGuideService {
 
         CompletableFuture.runAsync(() -> {
             try {
-                String prompt = buildGuidePrompt(session.context(), history);
+                String prompt = buildGuidePrompt(session.context(), history, cvSummary);
                 String response = geminiService.generateGuideResponse(prompt, frameBase64);
 
                 // 텍스트를 단어 단위로 청크 분할하여 스트리밍 효과
@@ -106,12 +107,16 @@ public class LiveGuideService {
 
     // ── 프롬프트 생성 ─────────────────────────────────────────────────────────
 
-    private String buildGuidePrompt(String context, List<Map<String, String>> history) {
+    private String buildGuidePrompt(String context, List<Map<String, String>> history, String cvSummary) {
         String historyText = (history == null || history.isEmpty())
             ? ""
             : "\n\n이전 대화:\n" + history.stream()
                 .map(m -> m.getOrDefault("role", "user") + ": " + m.getOrDefault("text", ""))
                 .collect(Collectors.joining("\n"));
+
+        String cvText = (cvSummary == null || cvSummary.isBlank())
+            ? ""
+            : "\n\nOpenCV 전처리 요약:\n" + cvSummary;
 
         String contextDesc = switch (context) {
             case "BIOS_ENTRY"       -> "BIOS 진입 (Del/F2/F10/F12 키)";
@@ -133,8 +138,9 @@ public class LiveGuideService {
             2. 다음으로 해야 할 구체적 조작 1~2단계 안내
             3. 작업이 완전히 완료됐으면 응답 끝에 "[완료]" 태그 포함
 
-            답변은 3~5문장 이내로 간결하게.%s
-            """.formatted(contextDesc, historyText);
+            OpenCV 전처리 요약은 화면 품질과 BIOS 화면 정면화 여부를 판단하는 보조 근거로만 사용하세요.
+            답변은 3~5문장 이내로 간결하게.%s%s
+            """.formatted(contextDesc, historyText, cvText);
     }
 
     // ── 내부 레코드 ───────────────────────────────────────────────────────────

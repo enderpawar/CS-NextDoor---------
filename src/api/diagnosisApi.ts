@@ -8,12 +8,11 @@ import type {
   PatternsResponse,
 } from '../types';
 import type { EventLog } from '../types/electron';
-
-const API_BASE = 'http://localhost:8080';
+import { API_BASE_URL, USE_MOCK_API } from './config';
 
 // ── Mock (백엔드 미실행 시 개발용) ───────────────────────────────────────────
-// 백엔드 준비되면 false로 변경
-export const USE_MOCK = true;
+// VITE_USE_MOCK=true일 때만 활성화
+export const USE_MOCK = USE_MOCK_API;
 
 const MOCK_DELAY = 1400; // ms — 실제 API 응답 느낌을 주기 위한 딜레이
 
@@ -53,7 +52,7 @@ const MOCK_HYPOTHESES: HypothesesResponse = {
 };
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

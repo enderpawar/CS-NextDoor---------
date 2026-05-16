@@ -39,6 +39,29 @@ jupyter
 ipywidgets
 ```
 
+## Synthetic sanity dataset
+
+실제 촬영 데이터가 없을 때는 아래 스크립트로 재현 가능한 합성 데이터를 생성한 뒤 01~03 노트북을 실행합니다.
+생성되는 이미지/영상 바이너리는 `data/.gitignore`에 의해 Git 추적 대상에서 제외됩니다.
+
+```bash
+python notebooks/generate_synthetic_cv_data.py
+```
+
+현재 TypeScript 상수는 이 synthetic sanity dataset으로 실행한 02/03 노트북 결과를 반영합니다.
+01 BIOS OCR 정확도 ablation은 Python `pytesseract`와 시스템 Tesseract 바이너리가 설치되어야 의미 있는 수치가 나옵니다.
+
+## Wikimedia Commons web test data
+
+라이선스가 명시된 Wikimedia Commons 파일을 테스트 데이터로 내려받으려면 아래 스크립트를 실행합니다.
+원본 이미지 바이너리는 Git 추적 대상에서 제외되고, 출처와 라이선스는 `data/web-test-sources.csv`에 기록됩니다.
+
+```bash
+python notebooks/fetch_commons_test_data.py
+```
+
+현재 프레임 품질 임계값은 Commons 웹 이미지와 파생 blur/dark/bright 샘플로 실행한 03 노트북 결과를 반영합니다.
+
 ## 노트북 계획
 
 | 노트북 | 모듈 | 목표 산출물 |

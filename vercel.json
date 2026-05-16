@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run pwa:build",
+  "outputDirectory": "dist/pwa",
+  "rewrites": [
+    {
+      "source": "/((?!assets/|icons/|manifest.json|sw.js|opencv.js|.*\\..*).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

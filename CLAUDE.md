@@ -174,14 +174,14 @@ nextdoor-cs/
 | **5** | ✅ 완료 — 3단계 UI(증상입력→가설추적→재현모드) + 줌 전환 애니메이션 + 풀스크린 채팅뷰 + HypothesisTracker(해결됐나요 분기 포함) + 재현 모드(베이스라인 저장·delta 계산·결과 해석) + DiagnosisConfidence(< 0.6 배너) + 베이스라인 이상 감지 + 완료 화면 + 복합 원인 버튼. PatternSelector·HW 에스컬레이션은 Phase 11로 이관. 백엔드 엔드포인트 미구현(USE_MOCK=true). 테스트 54개 |
 | **6** ⭐ | ✅ 완료 — manifest.json·sw.js·PwaPage.tsx·mobile.css·App.tsx 연결 완비 |
 | **7** ⭐ | ✅ 완료 — useOpenCV.ts·ShootingGuide.tsx·CameraView 통합(LiveGuideMode 내부) 완성 |
-| **7-B** ⭐⭐ | 🔶 진행 중 — LiveGuideMode.tsx·useGeminiLiveGuide.ts·useLiveFrameCapture.ts·모듈1/2/3 이식 완성. Python 노트북 검증 + ablation 후 BEST_PARAMS 업데이트 필요 |
+| **7-B** ⭐⭐ | ✅ MVP 완료 — LiveGuideMode.tsx·useGeminiLiveGuide.ts·useLiveFrameCapture.ts·모듈1/2/3 통합 완료. Python 노트북 01~03 synthetic sanity ablation 실행 및 BEST_PARAMS/품질 임계값 반영. 실제 촬영 데이터 기반 재튜닝은 제출 전 권장 |
 | **8** | ✅ 완료 — BiosTypeSelector.tsx·AudioCapture.tsx·PwaPage 통합. MediaRecorder iOS mp4 폴백·AEC 비활성화 적용. 모듈 4(비프음 스펙트로그램) Future Work |
 | **9** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
 | **10** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
 | **11** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
-| **CV 모듈 1** (BIOS 파이프라인) | 🔶 진행 중 — `src/lib/cv/biosPipeline.ts` OpenCV.js 이식 완성. `notebooks/01-bios-pipeline.ipynb` Python 검증 + ablation 필요 (Codex) |
-| **CV 모듈 2** (히스토그램 분석) | 🔶 진행 중 — `src/lib/cv/changeDetection.ts` 4 메트릭 이식 완성. `notebooks/02-histogram-analysis.ipynb` 36조합 ablation 필요 (Codex) |
-| **CV 모듈 3** (프레임 품질) | 🔶 진행 중 — `src/lib/cv/frameMetrics.ts` Laplacian variance + 밝기 통계 완성. `notebooks/03-frame-quality.ipynb` 임계값 튜닝 필요 (Codex) |
+| **CV 모듈 1** (BIOS 파이프라인) | ✅ MVP 완료 — `src/lib/cv/biosPipeline.ts` OpenCV.js 이식 완성. `notebooks/01-bios-pipeline.ipynb` synthetic 입력으로 실행 검증 완료. OCR 정확도 수치는 로컬 Tesseract 설치 후 실제 데이터로 재측정 필요 |
+| **CV 모듈 2** (히스토그램 분석) | ✅ MVP 완료 — `src/lib/cv/changeDetection.ts` 4 메트릭 이식 완성. `notebooks/02-histogram-analysis.ipynb` synthetic 5시나리오 ablation 결과: CORREL+GRAY+window=5+threshold=0.9999 |
+| **CV 모듈 3** (프레임 품질) | ✅ MVP 완료 — `src/lib/cv/frameMetrics.ts` Laplacian variance + 밝기 통계 완성. `notebooks/03-frame-quality.ipynb` Commons 웹 이미지 ablation 결과: minSharpness=0.05, minBrightness=0.15, maxBrightness=0.85 |
 | **CV 모듈 4** (비프음, 선택) | 🔲 미시작 — `notebooks/04-beep-spectrogram.ipynb` |
 
 ---

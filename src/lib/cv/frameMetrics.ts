@@ -2,10 +2,11 @@ import type { CvAnalysisOptions, CvFrameCandidate, CvFrameInput, CvFrameMetrics,
 
 const DEFAULT_OPTIONS: Required<CvAnalysisOptions> = {
   edgeThreshold: 26,
-  minSharpness: 0.18,
+  // notebooks/03-frame-quality.ipynb Commons web-image ablation: Laplacian/1600 threshold.
+  minSharpness: 0.05,
   minCoverageRatio: 0.04,
-  minBrightness: 0.12,
-  maxBrightness: 0.92,
+  minBrightness: 0.15,
+  maxBrightness: 0.85,
   histogramBins: 16,
   sceneChangeThreshold: 0.08,
 };
