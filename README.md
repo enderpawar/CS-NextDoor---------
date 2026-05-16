@@ -342,6 +342,41 @@ Output Directory: dist/pwa
 환경 변수는 Vercel Dashboard → Settings → Environment Variables에 등록.  
 백엔드 CORS의 `ALLOWED_ORIGINS`에 Vercel Production URL 추가 필요.
 
+현재 Vercel 프로젝트는 `nextdoor-cs`로 연결되어 있고 Production URL은 다음과 같습니다.
+
+```text
+https://nextdoor-cs.vercel.app
+```
+
+Vercel GitHub App 연결이 막히면 `.github/workflows/vercel-production.yml`로 자동배포할 수 있습니다. GitHub repository secrets에 아래 값을 등록하세요.
+
+```text
+VERCEL_TOKEN=<Vercel Account Settings에서 생성한 토큰>
+VERCEL_ORG_ID=team_Gt6r3JIWFBB0kObt79PLw37t
+VERCEL_PROJECT_ID=prj_9TXCnadCXqxGgs5fqwuijMkhya1f
+```
+
+### Render 백엔드 배포
+
+Spring Boot 백엔드는 `render.yaml` Blueprint와 `backend/Dockerfile`로 배포합니다.
+
+Render Dashboard에서 New → Blueprint를 선택하고 이 GitHub 저장소를 연결하면 `nextdoor-cs-api` 웹 서비스가 생성됩니다. 기본 배포 URL은 아래 형태입니다.
+
+```text
+https://nextdoor-cs-api.onrender.com
+```
+
+Render 서비스 환경 변수:
+
+```text
+GEMINI_API_KEY=<실제 Gemini API key>
+GEMINI_MODEL=gemini-3.1-pro-preview
+RATE_LIMIT_DAILY=5
+ALLOWED_ORIGINS=https://nextdoor-cs.vercel.app
+```
+
+배포 후 Vercel 환경 변수의 `VITE_API_BASE_URL`을 Render 백엔드 URL로 설정하고 프론트엔드를 재배포하세요.
+
 ---
 
 ## 🗂️ 프로젝트 구조
