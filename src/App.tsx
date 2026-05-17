@@ -3,7 +3,7 @@ import { useRuntimeMode } from './hooks/useRuntimeMode';
 import { useSystemInfo } from './hooks/useSystemInfo';
 import type { ClipboardImage, HypothesesResponse } from './types';
 import ElectronDashboard from './components/desktop/ElectronDashboard';
-import LiveGuideMode from './components/mobile/LiveGuideMode';
+import PwaPage from './components/mobile/PwaPage';
 import { generateHypotheses } from './api/diagnosisApi';
 import type { EventLog, ProcessData } from './types/electron';
 import './styles/tokens.css';
@@ -12,7 +12,37 @@ import './styles/animations.css';
 
 
 const CPU_HISTORY_MAX = 60;
-const INTRO_TRANSITION_MS = 820;
+const INTRO_TRANSITION_MS = 650;
+
+// 인트로 로고 — PwaPage의 AppLogo와 동일한 디자인
+function IntroLogo() {
+  const size = 88;
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: size * 0.28,
+      background: 'linear-gradient(155deg, oklch(0.56 0.15 245) 0%, oklch(0.42 0.16 248) 100%)',
+      display: 'grid', placeItems: 'center', position: 'relative', overflow: 'hidden',
+      boxShadow: `0 11px 26px -9px oklch(0.56 0.15 245 / 0.34)`,
+      flexShrink: 0,
+      animation: 'ndIntroLogoIn 520ms cubic-bezier(0.16,1,0.3,1) 80ms both',
+    }}>
+      <div style={{
+        width: size * 0.56, height: size * 0.42, borderRadius: size * 0.1,
+        background: 'rgba(255,255,255,0.12)',
+        border: '2px solid rgba(255,255,255,0.92)',
+        display: 'grid', placeItems: 'center',
+      }}>
+        <div style={{ width: size * 0.22, height: size * 0.05, borderRadius: size * 0.03, background: '#fff' }}/>
+      </div>
+      <div style={{
+        position: 'absolute', right: size * 0.14, bottom: size * 0.14,
+        width: size * 0.2, height: size * 0.2, borderRadius: '50%',
+        background: 'oklch(0.78 0.13 195)',
+        boxShadow: `0 0 0 ${size * 0.04}px oklch(0.56 0.15 245)`,
+      }}/>
+    </div>
+  );
+}
 
 export default function App() {
   const mode = useRuntimeMode();
@@ -124,40 +154,20 @@ export default function App() {
           onClick={enterApp}
           aria-label="인트로를 닫고 진단 화면으로 이동"
         >
-          <div className="nd-intro-frame">
-            <div className="nd-intro-header">
-              <span>NextDoor CS</span>
-              <span>AI PC Diagnosis</span>
-            </div>
-            <div className="nd-intro-core">
-              <span className="nd-intro-orbit nd-intro-orbit-one" />
-              <span className="nd-intro-orbit nd-intro-orbit-two" />
-              <span className="nd-intro-reticle" />
-              <span className="nd-intro-mark">N</span>
-              <div className="nd-intro-title">
-                <p>옆집 컴공생</p>
-                <strong>PC 문제를 바로 읽는 AI 진단</strong>
-              </div>
-            </div>
-            <div className="nd-intro-log">
-              <span>System</span>
-              <span>Vision</span>
-              <span>Signal</span>
-              <span>Ready</span>
-            </div>
-            <div className="nd-intro-progress"><span /></div>
-            <div className="nd-intro-cta">
-              <span>Click to enter</span>
-              <span aria-hidden="true">→</span>
-            </div>
+          <IntroLogo />
+          <div className="nd-intro-wordmark">
+            옆집<span className="nd-intro-dot">.</span>컴공생
           </div>
+          <p className="nd-intro-tagline">PC 문제를 바로 읽는 AI 진단</p>
+          <div className="nd-intro-progress"><span /></div>
+          <div className="nd-intro-cta">탭하여 시작하기 →</div>
         </button>
       )}
 
       <div className="nd-app-stage">
-        {/* ── PWA 모드 — Camera-First 진입 ── */}
+        {/* ── PWA 모드 — 랜딩 → 진단 모드 선택 ── */}
         {mode !== 'electron' && (
-          <LiveGuideMode isStandalone={mode === 'pwa-standalone'} />
+          <PwaPage isStandalone={mode === 'pwa-standalone'} />
         )}
 
         {/* ── Electron 모드 — 3컬럼 대시보드 ── */}

@@ -36,6 +36,10 @@ function QualityBar({ score }: { score: number }) {
 }
 
 export default function CvInsightPanel({ metrics, bios, cvReady }: Props) {
+  const textStatus = bios
+    ? bios.textRegions >= 8 ? '충분' : bios.textRegions > 0 ? '부족' : '없음'
+    : '--';
+
   return (
     <div className="nd-cv-panel" role="status" aria-label="CV 처리 상태">
       <div className="nd-cv-panel-header">
@@ -78,6 +82,13 @@ export default function CvInsightPanel({ metrics, bios, cvReady }: Props) {
           {/* 구분선 */}
           <div className="nd-cv-panel-divider" />
 
+          <div className="nd-cv-stage-strip" aria-label="전처리 단계">
+            <span className="nd-cv-stage active">Canny</span>
+            <span className={`nd-cv-stage${bios?.rectified ? ' active' : ''}`}>Homography</span>
+            <span className={`nd-cv-stage${bios ? ' active' : ''}`}>CLAHE</span>
+            <span className={`nd-cv-stage${bios?.textRegions ? ' active' : ''}`}>CC</span>
+          </div>
+
           {/* BIOS 화면 정면화 (모듈 1) */}
           <div className="nd-cv-panel-row">
             <span className="nd-cv-panel-label">📐 BIOS</span>
@@ -90,7 +101,7 @@ export default function CvInsightPanel({ metrics, bios, cvReady }: Props) {
           <div className="nd-cv-panel-row">
             <span className="nd-cv-panel-label">📝 텍스트</span>
             <span className="nd-cv-panel-val">
-              {bios ? `${bios.textRegions}개` : '--'}
+              {bios ? `${bios.textRegions}개 · ${textStatus}` : '--'}
             </span>
           </div>
 

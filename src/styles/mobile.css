@@ -1254,6 +1254,29 @@
   margin: 0.25rem 0;
 }
 
+.nd-cv-stage-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.28rem;
+}
+
+.nd-cv-stage {
+  min-width: 0;
+  padding: 0.22rem 0.2rem;
+  border-radius: 5px;
+  background: rgba(148, 163, 184, 0.12);
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 0.55rem;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
+
+.nd-cv-stage.active {
+  background: rgba(34, 197, 94, 0.16);
+  color: rgba(187, 247, 208, 0.95);
+}
+
 /* ── 품질 바 ─────────────────────────────────────────────────────────────────── */
 .nd-cv-quality-bar-track {
   height: 3px;
@@ -1417,13 +1440,82 @@
   }
 }
 
-/* Task 7: AR 오버레이 — Hough 검출 4 모서리 SVG */
+/* Task 7: AR 오버레이 — 촬영 가이드 + Hough 모서리 + CC 텍스트 후보 */
+.nd-ar-guide-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(82vw, 760px);
+  aspect-ratio: 16 / 9;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.18),
+    0 0 0 999px rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.nd-ar-guide-frame::before,
+.nd-ar-guide-frame::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)) left top / 34px 3px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)) left top / 3px 34px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)) right top / 34px 3px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)) right top / 3px 34px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)) left bottom / 34px 3px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)) left bottom / 3px 34px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)) right bottom / 34px 3px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)) right bottom / 3px 34px no-repeat;
+}
+
+.nd-ar-guide-frame::after {
+  inset: 50% 0 auto;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.nd-ar-guide-frame.detected {
+  border-color: rgba(90, 129, 250, 0.48);
+}
+
+.nd-ar-guide-frame.detected::before {
+  background:
+    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) left top / 34px 3px no-repeat,
+    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) left top / 3px 34px no-repeat,
+    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) right top / 34px 3px no-repeat,
+    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) right top / 3px 34px no-repeat,
+    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) left bottom / 34px 3px no-repeat,
+    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) left bottom / 3px 34px no-repeat,
+    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) right bottom / 34px 3px no-repeat,
+    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) right bottom / 3px 34px no-repeat;
+}
+
+.nd-ar-guide-label {
+  position: absolute;
+  left: 50%;
+  top: -2.1rem;
+  transform: translateX(-50%);
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.52);
+  color: rgba(255, 255, 255, 0.90);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
 .nd-ar-overlay {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
+  z-index: 4;
 }
 
 .nd-ar-quad {
@@ -1431,6 +1523,7 @@
   stroke: rgba(90, 129, 250, 0.85);
   stroke-width: 2.5;
   stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
   animation: nd-ar-appear 0.4s ease;
 }
 
@@ -1439,7 +1532,149 @@
   animation: nd-ar-appear 0.4s ease;
 }
 
+.nd-ar-text-region {
+  fill: rgba(34, 197, 94, 0.08);
+  stroke: rgba(34, 197, 94, 0.62);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  animation: nd-ar-appear 0.25s ease;
+}
+
 @keyframes nd-ar-appear {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Full-screen camera overlay layout
+   카메라가 뷰포트 전체를 채우고, UI 요소는 절대 위치 오버레이
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.nd-live-guide-camera-root {
+  position: fixed;
+  inset: 0;
+  padding: 0;
+  max-width: none;
+  margin: 0;
+  background: #000;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* 카메라: 전체 화면 fill */
+.nd-live-guide-camera-root .nd-camera-wrapper {
+  position: absolute;
+  inset: 0;
+  aspect-ratio: unset;
+  border-radius: 0;
+  z-index: 1;
+}
+
+/* 상단바: 상단 그라데이션 위에 플로팅 */
+.nd-live-guide-camera-root .nd-live-guide-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: max(env(safe-area-inset-top, 0px), 0.75rem) 1rem 1.75rem;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.62) 0%, transparent 100%);
+}
+
+/* 상단바 버튼: 카메라 위 가시성 */
+.nd-live-guide-camera-root .nd-guide-close-btn {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.nd-live-guide-camera-root .nd-guide-close-btn:hover {
+  background: rgba(239, 68, 68, 0.38);
+  color: #fff;
+}
+.nd-live-guide-camera-root .nd-guide-context-btn {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.nd-live-guide-camera-root .nd-cv-status,
+.nd-live-guide-camera-root .nd-cv-status.ready {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.82);
+}
+.nd-live-guide-camera-root .nd-cv-status.panel-open {
+  background: rgba(90, 129, 250, 0.32);
+}
+
+/* 독립 모드 경고: 상단바 아래 */
+.nd-live-guide-camera-root .nd-standalone-warn {
+  position: absolute;
+  top: 62px;
+  left: 1rem;
+  right: 1rem;
+  z-index: 19;
+  border-radius: 12px;
+}
+
+/* 품질 피드백: 상단 중앙 (카메라 상태 알림) */
+.nd-live-guide-camera-root .nd-quality-feedback {
+  position: absolute;
+  top: 74px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 16;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.52);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 20px;
+  padding: 0.3rem 0.85rem;
+  backdrop-filter: blur(8px);
+}
+
+/* 자동 vendor 감지 칩: 상단 중앙 */
+.nd-live-guide-camera-root .nd-vendor-chip {
+  position: absolute;
+  top: 74px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 17;
+}
+
+/* AI 가이드 버블: 액션 바 바로 위 */
+.nd-live-guide-camera-root .nd-guide-bubble {
+  position: absolute;
+  bottom: calc(80px + 0.75rem);
+  left: 1rem;
+  right: 1rem;
+  z-index: 15;
+}
+
+/* 액션 바: 하단 고정 + 다크 반투명 */
+.nd-live-guide-camera-root .nd-action-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.5rem);
+  background: rgba(10, 12, 26, 0.80);
+  backdrop-filter: blur(22px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.nd-live-guide-camera-root .nd-action-bar-label {
+  color: rgba(255, 255, 255, 0.72);
+}
+.nd-live-guide-camera-root .nd-action-bar-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ShootingGuide 오버레이: 전체 화면 덮음 — 라이트 배경 (디자인 Screen 04) */
+.nd-live-guide-camera-root .nd-shooting-overlay {
+  top: 0;
+  z-index: 25;
+  background: oklch(0.985 0.005 240);
+  overflow-y: auto;
+  align-items: flex-start;
+  padding: 0;
 }

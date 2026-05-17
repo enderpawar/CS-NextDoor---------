@@ -21,7 +21,7 @@ import '../../styles/mobile.css';
 import { useOpenCV }                         from '../../hooks/useOpenCV';
 import { useGeminiLiveGuide }                from '../../hooks/useGeminiLiveGuide';
 import { useLiveFrameCapture }               from '../../hooks/useLiveFrameCapture';
-import type { CvFrameInsightMetrics }        from '../../hooks/useLiveFrameCapture';
+import type { BiosArOverlay, CvFrameInsightMetrics } from '../../hooks/useLiveFrameCapture';
 import GuideContextSelector                  from './GuideContextSelector';
 import GuideBubble                           from './GuideBubble';
 import ShootingGuide                         from './ShootingGuide';
@@ -35,6 +35,7 @@ import {
   preprocessBiosFrameForGuide,
   runBiosPipeline,
 } from '../../lib/cv/biosPipeline';
+import type { BiosTextRegion } from '../../lib/cv/biosPipeline';
 
 // 세션 시작 즉시 표시할 컨텍스트별 정적 안내 (Gemini 응답 전 공백 방지)
 const STATIC_FIRST_GUIDE: Record<GuideContext, string> = {
@@ -94,6 +95,7 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
 
   // Task 7 — AR 오버레이 (모듈 1 Hough 검출 4 모서리)
   const [biosCorners,   setBiosCorners]   = useState<number[][] | null>(null);
+  const [biosTextRegions, setBiosTextRegions] = useState<BiosTextRegion[]>([]);
   const [biosVideoSize, setBiosVideoSize] = useState<{ w: number; h: number } | null>(null);
 
   const videoRef              = useRef<HTMLVideoElement>(null);
@@ -138,8 +140,9 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
 
   // ── Task 7: AR 오버레이 — Hough 검출 모서리 수신 ────────────────────────────
   const handleBiosOverlay = useCallback(
-    (corners: number[][] | null, videoW: number, videoH: number) => {
+    ({ corners, textRegions, videoW, videoH }: BiosArOverlay) => {
       setBiosCorners(corners);
+      setBiosTextRegions(textRegions);
       setBiosVideoSize({ w: videoW, h: videoH });
     },
     [],
@@ -209,7 +212,12 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
             `biosTextRegions=${preprocessed.textRegionCount}`,
             `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
           ].join(', ');
-          handleBiosOverlay(preprocessed.corners, offCanvas.width, offCanvas.height);
+          handleBiosOverlay({
+            corners: preprocessed.corners,
+            textRegions: preprocessed.textRegions,
+            videoW: offCanvas.width,
+            videoH: offCanvas.height,
+          });
           setBiosInsight({
             rectified:   preprocessed.rectified,
             textRegions: preprocessed.textRegionCount,
@@ -270,6 +278,7 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
         processMs: Math.round(preprocessed.processingMs),
       });
       setBiosCorners(preprocessed.corners);
+      setBiosTextRegions(preprocessed.textRegions);
       setBiosVideoSize({ w: canvas.width, h: canvas.height });
       cvSummary = [
         cvSummary,
@@ -279,6 +288,7 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
       ].join(', ');
     } catch {
       setBiosCorners(null);
+      setBiosTextRegions([]);
       cvSummary = `${cvSummary}, biosPreprocess=failed`;
     }
 
@@ -357,6 +367,8 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     setBiosType(null);
     setBiosTypeSource(null);
     setBiosCorners(null);
+    setBiosTextRegions([]);
+    setBiosVideoSize(null);
   }, [context]);
 
   // ── 카메라 시작/종료 ─────────────────────────────────────────────────────────
@@ -557,22 +569,42 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
           <div className="nd-camera-overlay">{streamError}</div>
         )}
 
-        {/* Task 7: AR 오버레이 — Hough 검출 4 모서리를 비디오 위에 SVG로 렌더
+        <div
+          className={`nd-ar-guide-frame${biosCorners ? ' detected' : ''}`}
+          aria-hidden="true"
+        >
+          <span className="nd-ar-guide-label">
+            {biosCorners ? 'SCREEN LOCKED' : 'ALIGN SCREEN'}
+          </span>
+        </div>
+
+        {/* Task 7: AR 오버레이 — Hough 모서리 + CC 텍스트 후보를 비디오 위에 SVG로 렌더
             viewBox + preserveAspectRatio="xMidYMid slice" = CSS object-fit:cover와 동일 매핑 */}
-        {biosCorners && biosVideoSize && (
+        {biosVideoSize && (biosCorners || biosTextRegions.length > 0) && (
           <svg
             className="nd-ar-overlay"
             viewBox={`0 0 ${biosVideoSize.w} ${biosVideoSize.h}`}
             preserveAspectRatio="xMidYMid slice"
             aria-hidden="true"
           >
-            <polygon
-              points={biosCorners.map(([x, y]) => `${x},${y}`).join(' ')}
-              className="nd-ar-quad"
-            />
-            {biosCorners.map(([x, y], i) => (
-              <circle key={i} cx={x} cy={y} r={Math.max(6, biosVideoSize.w * 0.008)} className="nd-ar-corner" />
+            {biosTextRegions.map(region => (
+              <polygon
+                key={region.id}
+                points={region.points.map(point => `${point[0] ?? 0},${point[1] ?? 0}`).join(' ')}
+                className="nd-ar-text-region"
+              />
             ))}
+            {biosCorners && (
+              <>
+                <polygon
+                  points={biosCorners.map(([x, y]) => `${x},${y}`).join(' ')}
+                  className="nd-ar-quad"
+                />
+                {biosCorners.map(([x, y], i) => (
+                  <circle key={i} cx={x} cy={y} r={Math.max(6, biosVideoSize.w * 0.008)} className="nd-ar-corner" />
+                ))}
+              </>
+            )}
           </svg>
         )}
 

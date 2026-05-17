@@ -1,287 +1,391 @@
 /**
- * Phase 6 — PWA 랜딩 페이지
+ * PwaPage — Claude Design 포팅 (옆집 컴공생.html)
  *
- * 독립 모드: URL에 ?session= 파라미터 없음 → SW 데이터 없음 경고 표시
- * 세션 모드: ?session= 파라미터 있음 → Electron 연결됨
+ * 화면 흐름: onboarding(01) → home(02) → context(03) → live-guide(05) / audio-capture(06)
  *
  * iOS Safari: 카메라 권한 유지를 위해 페이지 이동 금지.
  * 기능 전환은 state 기반 (페이지 이동 없음).
  */
 
-/**
- * Phase 6 — PWA 랜딩 페이지
- *
- * 독립 모드: URL에 ?session= 파라미터 없음 → SW 데이터 없음 경고 표시
- * 세션 모드: ?session= 파라미터 있음 → Electron 연결됨
- *
- * iOS Safari: 카메라 권한 유지를 위해 페이지 이동 금지.
- * 기능 전환은 state 기반 (페이지 이동 없음).
- *
- * Phase 8 추가: 오디오 진단 뷰 (BiosTypeSelector + AudioCapture)
- */
-
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
-  Activity,
-  AlertTriangle,
-  ArrowLeft,
-  Camera,
-  CheckCircle2,
-  ChevronRight,
-  ClipboardCheck,
-  Cpu,
-  Mic,
-  Monitor,
-  PlugZap,
-  RotateCcw,
-  ShieldCheck,
-  Smartphone,
-  WifiOff,
+  Camera, Mic, Sparkles, Cpu, PowerOff,
+  Volume2, Monitor, History, User, Home as HomeIcon,
+  ArrowRight, Check,
 } from 'lucide-react';
 import type { BiosType } from '../../types';
 import '../../styles/mobile.css';
-import LiveGuideMode    from './LiveGuideMode';
+import LiveGuideMode  from './LiveGuideMode';
 import BiosTypeSelector from './BiosTypeSelector';
-import AudioCapture     from './AudioCapture';
+import AudioCapture   from './AudioCapture';
 
-type PwaView = 'home' | 'live-guide' | 'audio-capture';
-type DiagnosticPath = 'no-boot' | 'screen-guide' | 'beep' | 'windows-running';
+// ── 디자인 시스템 — Ocean 팔레트 ─────────────────────────────────────────────
+const C = {
+  brand:      'oklch(0.56 0.15 245)',
+  brandDeep:  'oklch(0.42 0.16 248)',
+  brandSoft:  'oklch(0.96 0.028 245)',
+  brandFaint: 'oklch(0.985 0.012 245)',
+  accent:     'oklch(0.78 0.13 195)',
+  bg:         'oklch(0.985 0.005 240)',
+  surface:    '#ffffff',
+  ink:        'oklch(0.20 0.02 245)',
+  inkSoft:    'oklch(0.50 0.015 245)',
+  inkFaint:   'oklch(0.72 0.012 245)',
+  line:       'oklch(0.93 0.008 245)',
+  ok:         'oklch(0.66 0.14 155)',
+} as const;
 
-interface PathOption {
-  id: DiagnosticPath;
-  title: string;
-  desc: string;
-  action: string;
-  icon: typeof Monitor;
-  view?: Exclude<PwaView, 'home'>;
-  evidence: string[];
-}
+// ── 타입 ─────────────────────────────────────────────────────────────────────
+type PwaView = 'onboarding' | 'home' | 'context' | 'live-guide' | 'audio-capture';
 
-const PATH_OPTIONS: PathOption[] = [
-  {
-    id: 'no-boot',
-    title: '전원이 켜지지만 화면이 안 나와요',
-    desc: '모니터 신호, RAM 재장착, BIOS 진입 가능 여부를 순서대로 확인합니다.',
-    action: '카메라 가이드 시작',
-    icon: Monitor,
-    view: 'live-guide',
-    evidence: ['전원 LED 상태', '모니터 입력 소스', '메인보드/그래픽카드 화면'],
-  },
-  {
-    id: 'beep',
-    title: '부팅할 때 비프음이 들려요',
-    desc: 'BIOS 제조사와 비프음 패턴을 묶어서 RAM, 그래픽, 메인보드 가능성을 좁힙니다.',
-    action: '비프음 녹음',
-    icon: Mic,
-    view: 'audio-capture',
-    evidence: ['BIOS 제조사', '비프음 길이와 반복', '부팅 직후 녹음'],
-  },
-  {
-    id: 'screen-guide',
-    title: 'BIOS나 설치 화면에서 막혔어요',
-    desc: '화면을 비추면 부팅 메뉴, Secure Boot, Windows 설치 단계를 안내합니다.',
-    action: '화면 가이드 시작',
-    icon: Camera,
-    view: 'live-guide',
-    evidence: ['현재 화면 전체', '오류 문구', '키보드 조작 가능 여부'],
-  },
-  {
-    id: 'windows-running',
-    title: 'Windows는 켜지지만 느리거나 불안정해요',
-    desc: 'PWA에서는 증거 수집을 안내하고, 데스크톱 앱 연결 시 이벤트 로그와 프로세스를 함께 봅니다.',
-    action: '수집 순서 보기',
-    icon: Activity,
-    evidence: ['작업 관리자 화면', '오류 팝업', '발생 시점과 반복 조건'],
-  },
-];
+interface CtxOption { id: string; icon: React.ReactNode; title: string; sub: string; }
 
-const WORKFLOW_STEPS = [
-  { title: '상태 분류', desc: '부팅 가능 여부와 증상을 먼저 고릅니다.' },
-  { title: '증거 수집', desc: '카메라, 마이크, 화면 정보를 필요한 만큼만 받습니다.' },
-  { title: '가설 좁히기', desc: '하드웨어/설정/OS 원인을 분리합니다.' },
-  { title: '다음 조치', desc: '자가 조치와 기사 상담 기준을 나눕니다.' },
+const CTX_OPTIONS: CtxOption[] = [
+  { id: 'off',   icon: <PowerOff size={22}/>, title: 'PC가 켜지지 않아요',       sub: '전원 버튼을 눌러도 반응이 없거나' },
+  { id: 'bios',  icon: <Cpu size={22}/>,      title: '검은 화면에 글자만 보여요', sub: 'BIOS / POST 화면일 수 있어요' },
+  { id: 'error', icon: <Monitor size={22}/>,  title: '에러 메시지가 떴어요',      sub: 'BSOD · 영문 에러 코드' },
+  { id: 'beep',  icon: <Volume2 size={22}/>,  title: '비프음이 들려요',           sub: '삐 — 삐삐 같은 패턴 소리' },
+  { id: 'crash', icon: <Monitor size={22}/>,  title: '화면이 깨지거나 멈춰요',    sub: '재부팅 후에도 반복돼요' },
 ];
 
 interface Props {
-  isStandalone: boolean;  // URL에 ?session= 없음 (PC 부팅 불가 진입)
+  isStandalone: boolean;
 }
 
-export default function PwaPage({ isStandalone }: Props) {
-  const [view,     setView]     = useState<PwaView>('home');
-  const [biosType, setBiosType] = useState<BiosType | null>(null);
-  const [selectedPath, setSelectedPath] = useState<DiagnosticPath>('no-boot');
+// ── 공유 서브 컴포넌트 ────────────────────────────────────────────────────────
 
-  const selectedOption = useMemo<PathOption>(
-    () => PATH_OPTIONS.find(option => option.id === selectedPath) ?? PATH_OPTIONS[0]!,
-    [selectedPath],
+function AppLogo({ size = 56 }: { size?: number }) {
+  const r = size * 0.28;
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: r, flexShrink: 0,
+      background: `linear-gradient(155deg, ${C.brand} 0%, ${C.brandDeep} 100%)`,
+      display: 'grid', placeItems: 'center', position: 'relative', overflow: 'hidden',
+      boxShadow: `0 ${size * 0.12}px ${size * 0.3}px -${size * 0.1}px ${C.brand}55`,
+    }}>
+      <div style={{
+        width: size * 0.56, height: size * 0.42, borderRadius: size * 0.1,
+        background: 'rgba(255,255,255,0.12)',
+        border: `${Math.max(1, size * 0.025)}px solid rgba(255,255,255,0.92)`,
+        display: 'grid', placeItems: 'center',
+      }}>
+        <div style={{ width: size * 0.22, height: size * 0.05, borderRadius: size * 0.03, background: '#fff' }}/>
+      </div>
+      <div style={{
+        position: 'absolute', right: size * 0.14, bottom: size * 0.14,
+        width: size * 0.2, height: size * 0.2, borderRadius: '50%',
+        background: C.accent, boxShadow: `0 0 0 ${size * 0.04}px ${C.brand}`,
+      }}/>
+    </div>
   );
+}
 
-  const startSelectedPath = () => {
-    if (selectedOption.view) {
-      setView(selectedOption.view);
-    }
+function AppWordmark({ size = 22, compact = false }: { size?: number; compact?: boolean }) {
+  return (
+    <span style={{ fontFamily: 'Pretendard, system-ui', fontWeight: 800, fontSize: size, letterSpacing: -0.6, color: C.ink, lineHeight: 1 }}>
+      옆집<span style={{ color: C.brand }}>.</span>{!compact && ' 컴공생'}
+    </span>
+  );
+}
+
+function PillBtn({
+  children, variant = 'primary', full = false,
+  onClick, disabled = false, style: extraStyle = {},
+}: {
+  children: React.ReactNode; variant?: 'primary' | 'soft' | 'ghost' | 'outline';
+  full?: boolean; onClick?: () => void; disabled?: boolean; style?: React.CSSProperties;
+}) {
+  const base: React.CSSProperties = {
+    height: 56, borderRadius: 28, padding: '0 26px',
+    fontFamily: 'Pretendard, system-ui', fontSize: 17, fontWeight: 700, letterSpacing: -0.3,
+    border: 'none', cursor: disabled ? 'default' : 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    userSelect: 'none', whiteSpace: 'nowrap', width: full ? '100%' : undefined,
+    opacity: disabled ? 0.5 : 1, ...extraStyle,
   };
+  const vMap: Record<string, React.CSSProperties> = {
+    primary: { background: C.brand, color: '#fff', boxShadow: `0 8px 20px -8px ${C.brand}88` },
+    soft:    { background: C.brandSoft, color: C.brand },
+    ghost:   { background: 'transparent', color: C.ink },
+    outline: { background: C.surface, color: C.ink, boxShadow: `inset 0 0 0 1.5px ${C.line}` },
+  };
+  return <button type="button" style={{ ...base, ...vMap[variant] }} onClick={onClick} disabled={disabled}>{children}</button>;
+}
 
+function ProgressDot({ active = false }: { active?: boolean }) {
+  return <div style={{ width: active ? 22 : 7, height: 7, borderRadius: 999, background: active ? C.brand : C.line, transition: 'width .2s' }}/>;
+}
+
+function FeatureRow({ icon, title, sub }: { icon: React.ReactNode; title: string; sub: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 14px', borderRadius: 18, background: C.surface, boxShadow: `0 1px 0 ${C.line}, 0 8px 24px -16px ${C.brand}44` }}>
+      <div style={{ width: 40, height: 40, borderRadius: 12, background: C.brandSoft, color: C.brand, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{icon}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink, letterSpacing: -0.3 }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, letterSpacing: -0.2 }}>{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+function QuickCard({ icon, label, tag, onClick }: { icon: React.ReactNode; label: string; tag: string; onClick?: () => void }) {
+  return (
+    <button type="button" onClick={onClick} style={{ padding: 14, borderRadius: 18, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 100, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Pretendard, system-ui' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: C.brandSoft, color: C.brand, display: 'grid', placeItems: 'center' }}>{icon}</div>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 1, color: C.inkFaint, fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace' }}>{tag}</span>
+      </div>
+      <div style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: -0.3, lineHeight: 1.3, color: C.ink }}>{label}</div>
+    </button>
+  );
+}
+
+function TabItem({ icon, label, active = false }: { icon: React.ReactNode; label: string; active?: boolean }) {
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 0', color: active ? C.brand : C.inkFaint }}>
+      {icon}
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: -0.1 }}>{label}</div>
+    </div>
+  );
+}
+
+// ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
+
+export default function PwaPage({ isStandalone }: Props) {
+  const [view,        setView]       = useState<PwaView>('onboarding');
+  const [selectedCtx, setSelectedCtx] = useState<string>('bios');
+  const [biosType,    setBiosType]   = useState<BiosType | null>(null);
+
+  // ── 진단 모드 뷰 ──────────────────────────────────────────────────────────
   if (view === 'live-guide') {
-    return <LiveGuideMode isStandalone={isStandalone} />;
+    return <LiveGuideMode isStandalone={isStandalone}/>;
   }
 
   if (view === 'audio-capture') {
     return (
-      <div className="nd-pwa-page">
-        <div className="nd-pwa-header">
-          <button
-            type="button"
-            onClick={() => setView('home')}
-            className="nd-pwa-back-button"
-            aria-label="홈으로"
-          >
-            <ArrowLeft size={18} />
+      <div style={{ minHeight: '100dvh', background: '#0a0f17', fontFamily: 'Pretendard, system-ui', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ height: 54 }}/>
+        <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button type="button" onClick={() => setView('home')} aria-label="홈으로" style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: 'rgba(255,255,255,0.10)', color: '#fff', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
-          <div className="nd-pwa-header-text">
-            <span className="nd-pwa-app-name">비프음 진단</span>
-            <span className="nd-pwa-app-sub">PC 부팅 오류 코드 분석</span>
+          <span style={{ color: 'rgba(255,255,255,0.65)', fontWeight: 700, fontSize: 13, letterSpacing: 0.3 }}>AUDIO CAPTURE</span>
+        </div>
+        <div style={{ padding: '0 16px', flex: 1 }}>
+          <BiosTypeSelector selected={biosType} onSelect={setBiosType}/>
+          <div style={{ marginTop: '0.75rem' }}>
+            <AudioCapture biosType={biosType} symptom="부팅 시 비프음 패턴 분석"/>
           </div>
-        </div>
-
-        <div className="nd-pwa-mode-card">
-          <BiosTypeSelector selected={biosType} onSelect={setBiosType} />
-        </div>
-
-        <div className="nd-pwa-mode-card">
-          <AudioCapture biosType={biosType} symptom="부팅 시 비프음 패턴 분석" />
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="nd-pwa-page">
-      <div className="nd-pwa-header">
-        <div className="nd-pwa-logo-mark" aria-hidden="true">
-          <Cpu size={20} />
+  // ── Screen 01: 온보딩 ─────────────────────────────────────────────────────
+  if (view === 'onboarding') {
+    return (
+      <div style={{ minHeight: '100dvh', position: 'relative', overflow: 'hidden', background: `linear-gradient(180deg, ${C.brandFaint} 0%, ${C.surface} 60%)`, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
+        {/* deco blobs */}
+        <div style={{ position: 'absolute', top: -120, right: -80, width: 320, height: 320, borderRadius: '50%', background: C.brand, opacity: 0.08, filter: 'blur(40px)', pointerEvents: 'none' }}/>
+        <div style={{ position: 'absolute', top: 180, left: -100, width: 240, height: 240, borderRadius: '50%', background: C.accent, opacity: 0.10, filter: 'blur(50px)', pointerEvents: 'none' }}/>
+
+        <div style={{ height: 54 }}/>
+
+        {/* 건너뛰기 */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 22px' }}>
+          <button type="button" onClick={() => setView('home')} style={{ background: 'none', border: 'none', fontSize: 14, color: C.inkSoft, fontWeight: 500, cursor: 'pointer', fontFamily: 'Pretendard, system-ui' }}>건너뛰기</button>
         </div>
-        <div className="nd-pwa-header-text">
-          <span className="nd-pwa-app-name">NextDoor CS</span>
-          <span className="nd-pwa-app-sub">PWA PC 진단 콘솔</span>
+
+        {/* 히어로 */}
+        <div style={{ padding: '36px 28px 0', display: 'flex', flexDirection: 'column', gap: 22, flex: 1 }}>
+          <AppLogo size={72}/>
+          <div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: C.brandSoft, color: C.brand, fontSize: 12.5, fontWeight: 700, letterSpacing: -0.2, marginBottom: 14 }}>
+              <Sparkles size={13}/>
+              AI 진단 도우미 · Beta
+            </div>
+            <h1 style={{ margin: 0, fontSize: 34, lineHeight: 1.22, fontWeight: 800, letterSpacing: -1.4 }}>
+              수리기사 부르기 전,<br/>
+              <span style={{ color: C.brand }}>옆집 컴공생</span>에게<br/>
+              먼저 물어보세요
+            </h1>
+            <p style={{ margin: '14px 0 0', fontSize: 15.5, lineHeight: 1.55, color: C.inkSoft, letterSpacing: -0.3, fontWeight: 500 }}>
+              카메라·마이크로 PC 증상을 살펴보고,<br/>
+              친구처럼 단계별로 알려드려요.
+            </p>
+          </div>
+
+          {/* 피처 행 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 'auto', paddingBottom: 180 }}>
+            <FeatureRow icon={<Camera size={20}/>}   title="카메라로 PC 화면 진단"    sub="BIOS · 에러 메시지 · 부팅 화면"/>
+            <FeatureRow icon={<Mic size={20}/>}      title="비프음으로 하드웨어 진단" sub="삐 — 삐삐 패턴을 인식해요"/>
+            <FeatureRow icon={<Sparkles size={20}/>} title="Gemini가 원인을 추론해요" sub="OpenCV가 먼저 걸러 더 정확하게"/>
+          </div>
+        </div>
+
+        {/* 하단 CTA */}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: `0 22px max(env(safe-area-inset-bottom,0px),24px)`, display: 'flex', flexDirection: 'column', gap: 14, background: `linear-gradient(to top, ${C.surface} 70%, transparent)` }}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
+            <ProgressDot active/><ProgressDot/><ProgressDot/>
+          </div>
+          <PillBtn full onClick={() => setView('home')}>시작하기 <ArrowRight size={18}/></PillBtn>
+          <div style={{ textAlign: 'center', fontSize: 13.5, color: C.inkSoft, paddingBottom: 8 }}>
+            이미 사용 중이신가요?{' '}
+            <span style={{ color: C.brand, fontWeight: 700 }}>로그인</span>
+          </div>
         </div>
       </div>
+    );
+  }
 
-      {isStandalone && (
-        <div className="nd-standalone-warn" role="alert">
-          <WifiOff size={18} aria-hidden="true" />
-          <span>
-            더 정확한 진단이 필요하다면 컴퓨터에서 만나요. 지금은 휴대폰 카메라와 마이크로 부팅 전 하드웨어 단서를 먼저 확인할 수 있습니다.
-          </span>
+  // ── Screen 03: 상황 선택 ─────────────────────────────────────────────────
+  if (view === 'context') {
+    return (
+      <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ height: 54 }}/>
+
+        {/* 네비 */}
+        <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <button type="button" onClick={() => setView('home')} style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke={C.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.inkFaint, letterSpacing: 0.3 }}>1 / 3</span>
+          <div style={{ width: 40 }}/>
         </div>
-      )}
 
-      <section className="nd-pwa-hero-panel" aria-labelledby="pwa-main-title">
-        <div>
-          <span className="nd-pwa-mode-label">Triage first workflow</span>
-          <h1 id="pwa-main-title">PC가 어떤 상태인지 먼저 고르세요.</h1>
-          <p>
-            진단은 기능을 고르는 일이 아니라, 증상을 분류하고 필요한 증거를 좁히는 흐름이어야 합니다.
-            PWA는 부팅 불가 상황에서도 카메라와 마이크로 하드웨어 단서를 바로 수집합니다.
+        {/* 진행 바 */}
+        <div style={{ padding: '4px 22px 0' }}>
+          <div style={{ height: 4, borderRadius: 4, background: C.line, position: 'relative' }}>
+            <div style={{ position: 'absolute', inset: 0, width: '33%', background: C.brand, borderRadius: 4 }}/>
+          </div>
+        </div>
+
+        {/* 제목 */}
+        <div style={{ padding: '24px 22px 4px' }}>
+          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, letterSpacing: -1.1, lineHeight: 1.25 }}>어떤 상황인가요?</h1>
+          <p style={{ margin: '8px 0 0', color: C.inkSoft, fontSize: 14.5, letterSpacing: -0.3, fontWeight: 500 }}>
+            가장 가까운 상황을 골라주세요.<br/>
+            잘 모르겠으면 <span style={{ color: C.brand, fontWeight: 700 }}>자동 진단</span>으로 넘어갈 수 있어요.
           </p>
         </div>
-        <div className="nd-pwa-hero-status" aria-label="진단 범위">
-          <span><Smartphone size={16} /> PWA 우선</span>
-          <span><ShieldCheck size={16} /> 권한 최소 요청</span>
-          <span><PlugZap size={16} /> 부팅 불가 대응</span>
-        </div>
-      </section>
 
-      <section className="nd-pwa-workflow-strip" aria-label="진단 워크플로우">
-        {WORKFLOW_STEPS.map((step, index) => (
-          <article key={step.title} className={index === 0 ? 'active' : ''}>
-            <span>{String(index + 1).padStart(2, '0')}</span>
-            <strong>{step.title}</strong>
-            <p>{step.desc}</p>
-          </article>
-        ))}
-      </section>
-
-      <main className="nd-pwa-diagnosis-layout">
-        <section className="nd-pwa-path-list" aria-labelledby="path-list-title">
-          <div className="nd-pwa-section-head">
-            <span className="nd-pwa-mode-label">증상 선택</span>
-            <h2 id="path-list-title">가장 가까운 상태</h2>
-          </div>
-          {PATH_OPTIONS.map(option => {
-            const Icon = option.icon;
-            const isSelected = selectedPath === option.id;
+        {/* 선택지 */}
+        <div style={{ padding: '18px 22px 0', display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+          {CTX_OPTIONS.map(opt => {
+            const on = selectedCtx === opt.id;
             return (
-              <button
-                key={option.id}
-                type="button"
-                className={`nd-pwa-path-button${isSelected ? ' selected' : ''}`}
-                onClick={() => setSelectedPath(option.id)}
-                aria-pressed={isSelected}
-              >
-                <span className="nd-pwa-path-icon"><Icon size={20} /></span>
-                <span className="nd-pwa-path-copy">
-                  <strong>{option.title}</strong>
-                  <small>{option.desc}</small>
-                </span>
-                <ChevronRight size={18} aria-hidden="true" />
+              <button key={opt.id} type="button" onClick={() => setSelectedCtx(opt.id)} style={{ padding: 14, borderRadius: 18, textAlign: 'left', background: on ? C.brandSoft : C.surface, boxShadow: on ? `inset 0 0 0 2px ${C.brand}` : `inset 0 0 0 1px ${C.line}`, display: 'flex', alignItems: 'center', gap: 14, border: 'none', cursor: 'pointer', width: '100%', fontFamily: 'Pretendard, system-ui' }}>
+                <div style={{ width: 44, height: 44, borderRadius: 13, background: on ? C.brand : C.brandSoft, color: on ? '#fff' : C.brand, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{opt.icon}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15.5, fontWeight: 700, letterSpacing: -0.4, color: C.ink }}>{opt.title}</div>
+                  <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, letterSpacing: -0.2 }}>{opt.sub}</div>
+                </div>
+                <div style={{ width: 22, height: 22, borderRadius: '50%', background: on ? C.brand : 'transparent', boxShadow: on ? 'none' : `inset 0 0 0 1.5px ${C.line}`, display: 'grid', placeItems: 'center', color: '#fff', flexShrink: 0 }}>
+                  {on && <Check size={13}/>}
+                </div>
               </button>
             );
           })}
-        </section>
+        </div>
 
-        <aside className="nd-pwa-action-panel" aria-labelledby="recommended-action-title">
-          <div className="nd-pwa-section-head">
-            <span className="nd-pwa-mode-label">권장 경로</span>
-            <h2 id="recommended-action-title">{selectedOption.title}</h2>
-            <p>{selectedOption.desc}</p>
-          </div>
-
-          <div className="nd-pwa-evidence-box">
-            <div className="nd-pwa-evidence-title">
-              <ClipboardCheck size={18} />
-              먼저 확보할 증거
-            </div>
-            <ul>
-              {selectedOption.evidence.map(item => (
-                <li key={item}>
-                  <CheckCircle2 size={15} />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {selectedOption.view ? (
-            <button
-              type="button"
-              className="nd-pwa-primary-action"
-              onClick={startSelectedPath}
-            >
-              {selectedOption.action}
-              <ChevronRight size={18} />
+        {/* 하단 CTA */}
+        <div style={{ padding: `12px 22px max(env(safe-area-inset-bottom,0px),30px)`, background: C.bg, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <button type="button" onClick={() => setView('live-guide')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
+              ✨ 잘 모르겠어요, 자동 진단할게요
             </button>
-          ) : (
-            <div className="nd-pwa-offline-action">
-              <AlertTriangle size={18} />
-              Windows 실행 중 진단은 데스크톱 앱 연결 시 가장 정확합니다. 지금은 화면과 오류 문구를 촬영해 증거를 모아두세요.
-            </div>
-          )}
+          </div>
+          <PillBtn full onClick={() => selectedCtx === 'beep' ? setView('audio-capture') : setView('live-guide')}>
+            다음 단계로 <ArrowRight size={18}/>
+          </PillBtn>
+        </div>
+      </div>
+    );
+  }
 
-          <button
-            type="button"
-            className="nd-pwa-secondary-action"
-            onClick={() => setSelectedPath('no-boot')}
-          >
-            <RotateCcw size={16} />
-            처음 상태로
-          </button>
-        </aside>
-      </main>
+  // ── Screen 02: 홈 ────────────────────────────────────────────────────────
+  return (
+    <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ height: 54 }}/>
 
-      <p className="nd-pwa-footnote">
-        카메라와 마이크 권한은 해당 진단을 시작할 때만 요청합니다. HTTPS 환경 또는 localhost에서 동작합니다.
-      </p>
+      {/* 탑바 */}
+      <div style={{ padding: '8px 22px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <AppLogo size={32}/>
+          <AppWordmark size={18} compact/>
+        </div>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', position: 'relative', color: C.inkSoft }}>
+          <History size={20}/>
+          <span style={{ position: 'absolute', top: 7, right: 8, width: 7, height: 7, borderRadius: '50%', background: C.brand }}/>
+        </div>
+      </div>
+
+      {/* 인사 */}
+      <div style={{ padding: '24px 22px 12px' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: C.inkSoft, letterSpacing: -0.3 }}>안녕하세요 👋</div>
+        <h1 style={{ margin: '4px 0 0', fontSize: 26, fontWeight: 800, lineHeight: 1.3, letterSpacing: -1.2 }}>
+          오늘은<br/>어떤 문제가 있나요?
+        </h1>
+      </div>
+
+      {/* 히어로 CTA 카드 */}
+      <div style={{ padding: '12px 22px 0' }}>
+        <button type="button" onClick={() => setView('context')} style={{ width: '100%', borderRadius: 24, padding: 18, position: 'relative', overflow: 'hidden', background: `linear-gradient(140deg, ${C.brand} 0%, ${C.brandDeep} 100%)`, color: '#fff', boxShadow: `0 16px 30px -16px ${C.brand}aa`, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Pretendard, system-ui' }}>
+          {/* 데코 링 */}
+          <div style={{ position: 'absolute', right: -50, top: -50, width: 180, height: 180, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.22)', pointerEvents: 'none' }}/>
+          <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.16)', pointerEvents: 'none' }}/>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, opacity: 0.85, letterSpacing: 0.4 }}>
+            <Sparkles size={12}/>
+            LIVE GUIDE
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 800, marginTop: 8, letterSpacing: -0.8 }}>
+            카메라로 PC 화면<br/>비춰서 시작하기
+          </div>
+          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 6, letterSpacing: -0.2, fontWeight: 500 }}>
+            평균 12초 안에 원인을 찾아드려요
+          </div>
+          <div style={{ marginTop: 14, height: 44, borderRadius: 22, background: 'rgba(255,255,255,0.96)', color: C.brand, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>
+            <Camera size={18}/>
+            진단 시작하기
+          </div>
+        </button>
+      </div>
+
+      {/* 빠른 진단 2×2 */}
+      <div style={{ padding: '20px 22px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.4 }}>빠른 진단</div>
+          <span style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>전체보기</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <QuickCard icon={<PowerOff size={20}/>} label="부팅이 안돼요"    tag="POWER"   onClick={() => setView('live-guide')}/>
+          <QuickCard icon={<Cpu size={20}/>}      label="BIOS 화면이에요"  tag="BIOS"    onClick={() => setView('live-guide')}/>
+          <QuickCard icon={<Volume2 size={20}/>}  label="비프음이 나요"    tag="AUDIO"   onClick={() => setView('audio-capture')}/>
+          <QuickCard icon={<Monitor size={20}/>}  label="화면이 깨져요"    tag="DISPLAY" onClick={() => setView('live-guide')}/>
+        </div>
+      </div>
+
+      {/* 최근 진단 */}
+      <div style={{ padding: '18px 22px 0' }}>
+        <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.4, marginBottom: 10 }}>최근 진단</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: C.brandSoft, color: C.brand, display: 'grid', placeItems: 'center' }}><Cpu size={20}/></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: -0.3 }}>BIOS Boot Order 변경</div>
+            <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>어제 · 2분만에 해결</div>
+          </div>
+          <div style={{ padding: '4px 8px', borderRadius: 6, background: '#e8f5ee', color: C.ok, fontSize: 11, fontWeight: 800 }}>해결</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1 }}/>
+
+      {/* 탭 바 */}
+      <div style={{ padding: `8px 16px max(env(safe-area-inset-bottom,0px),16px)`, background: C.surface, borderTop: `1px solid ${C.line}`, display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+        <TabItem icon={<HomeIcon size={22}/>} label="홈"       active/>
+        <TabItem icon={<History size={22}/>}  label="히스토리"/>
+        <TabItem icon={<User size={22}/>}     label="내 기기"/>
+      </div>
     </div>
   );
 }

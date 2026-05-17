@@ -52,9 +52,18 @@ export interface BiosGuidePreprocessResult {
   canvas: HTMLCanvasElement;
   rectified: boolean;
   textRegionCount: number;
+  /** Connected Components 텍스트 후보 영역 (원본 프레임 픽셀 공간) */
+  textRegions: BiosTextRegion[];
   processingMs: number;
   /** Hough 검출 4 모서리 좌표 (원본 프레임 픽셀 공간). [tl, tr, br, bl] 순서 */
   corners: number[][] | null;
+}
+
+export interface BiosTextRegion {
+  id: number;
+  area: number;
+  /** 원본 프레임 픽셀 공간의 4점 폴리곤. [tl, tr, br, bl] 순서 */
+  points: number[][];
 }
 
 // ablation 결과 반영 예정 — 노트북 실험 후 업데이트
@@ -89,6 +98,7 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
   const clahe     = new cv.CLAHE(CLAHE_CLIP, new cv.Size(CLAHE_GRID, CLAHE_GRID));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let warped: any = null;
+  let homographyInv: any = null;
 
   let detectedCorners: number[][] | null = null;
 
@@ -107,6 +117,8 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
         if (H && !H.empty()) {
           warped = new cv.Mat();
           cv.warpPerspective(gray, warped, H, new cv.Size(rgba.width, rgba.height));
+          homographyInv = new cv.Mat();
+          cv.invert(H, homographyInv);
           rectified = true;
         }
       } finally {
@@ -128,6 +140,13 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
     cv.connectedComponentsWithStats(binary, labels, stats, centroids);
     const numLabels: number = labels.rows > 0 ? (stats.rows - 1) : 0;
     textRegionCount = countTextRegions(stats, numLabels);
+    const textRegions = collectTextRegions(
+      stats,
+      numLabels,
+      rgba.width,
+      rgba.height,
+      homographyInv,
+    );
 
     const canvas = document.createElement('canvas');
     canvas.width = rgba.width;
@@ -138,12 +157,14 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
       canvas,
       rectified,
       textRegionCount,
+      textRegions,
       processingMs: performance.now() - t0,
       corners: detectedCorners,
     };
   } finally {
     [src, gray, edges, lines, enhanced, binary, labels, stats, centroids].forEach(m => m.delete());
     warped?.delete();
+    homographyInv?.delete();
     clahe.delete();
   }
 }
@@ -182,15 +203,20 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
     if (corners) {
       const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.src.flat());
       const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.dst.flat());
-      const H = cv.findHomography(srcPts, dstPts, cv.RANSAC, 5.0);
-      if (H && !H.empty()) {
-        warped = new cv.Mat();
-        cv.warpPerspective(gray, warped, H, new cv.Size(rgba.width, rgba.height));
-        rectified = true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let H: any = null;
+      try {
+        H = cv.findHomography(srcPts, dstPts, cv.RANSAC, 5.0);
+        if (H && !H.empty()) {
+          warped = new cv.Mat();
+          cv.warpPerspective(gray, warped, H, new cv.Size(rgba.width, rgba.height));
+          rectified = true;
+        }
+      } finally {
+        srcPts.delete();
+        dstPts.delete();
+        H?.delete();
       }
-      srcPts.delete();
-      dstPts.delete();
-      H?.delete();
     }
 
     const input: any = warped ?? gray;
@@ -246,7 +272,18 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** HoughLinesP 결과 Mat에서 화면 4 모서리 좌표 추출 */
+/**
+ * HoughLinesP 결과 Mat에서 화면 4 모서리 좌표 추출.
+ *
+ * 알고리즘:
+ *   1) 각 라인의 기울기로 horizontal / vertical 분류
+ *   2) horizontal은 평균 y, vertical은 평균 x 기준 정렬
+ *   3) 가장 위/아래/왼/오른쪽 라인 한 개씩 선택
+ *   4) 4 쌍의 라인 교차점을 직선 방정식으로 계산 → tl/tr/br/bl
+ *
+ * 사선으로 비춰진 BIOS 화면(trapezoid)에서도 올바른 모서리를 얻기 위해
+ * 좌표 합성(axis-aligned)이 아닌 교차점 계산을 사용한다.
+ */
 function extractQuadCorners(
   lines: any,
   width: number,
@@ -268,23 +305,36 @@ function extractQuadCorners(
 
   if (hLines.length < 2 || vLines.length < 2) return null;
 
-  hLines.sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0));     // y 오름차순
-  vLines.sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0));     // x 오름차순
+  // 라인의 평균 y / 평균 x 기준 정렬 (사선 라인에서도 robust)
+  hLines.sort((a, b) => avgY(a) - avgY(b));
+  vLines.sort((a, b) => avgX(a) - avgX(b));
 
-  const top    = hLines[0]!;
-  const bottom = hLines[hLines.length - 1]!;
-  const left   = vLines[0]!;
-  const right  = vLines[vLines.length - 1]!;
+  const topLine    = hLines[0]!;
+  const bottomLine = hLines[hLines.length - 1]!;
+  const leftLine   = vLines[0]!;
+  const rightLine  = vLines[vLines.length - 1]!;
 
-  const tl = [left[0]!, top[1]!];
-  const tr = [right[0]!, top[1]!];
-  const br = [right[0]!, bottom[1]!];
-  const bl = [left[0]!, bottom[1]!];
+  // 교차점 = 화면 모서리
+  const tl = lineIntersect(topLine,    leftLine);
+  const tr = lineIntersect(topLine,    rightLine);
+  const br = lineIntersect(bottomLine, rightLine);
+  const bl = lineIntersect(bottomLine, leftLine);
 
-  const quadW = Math.abs(tr[0]! - tl[0]!);
-  const quadH = Math.abs(bl[1]! - tl[1]!);
+  if (!tl || !tr || !br || !bl) return null;
 
-  // 너무 작은 사각형은 노이즈로 판단
+  // 화면을 크게 벗어난 교차점은 평행에 가깝거나 잘못된 라인 조합 → 거부
+  const marginX = width  * 0.2;
+  const marginY = height * 0.2;
+  for (const corner of [tl, tr, br, bl]) {
+    const x = corner[0] ?? 0;
+    const y = corner[1] ?? 0;
+    if (x < -marginX || x > width  + marginX) return null;
+    if (y < -marginY || y > height + marginY) return null;
+  }
+
+  // 사각형 크기 게이트 — 너무 작으면 노이즈로 판단
+  const quadW = Math.max(distance(tl, tr), distance(bl, br));
+  const quadH = Math.max(distance(tl, bl), distance(tr, br));
   if (quadW < width * 0.15 || quadH < height * 0.15) return null;
 
   return {
@@ -298,6 +348,45 @@ function extractQuadCorners(
   };
 }
 
+function avgY(line: number[]): number {
+  return ((line[1] ?? 0) + (line[3] ?? 0)) / 2;
+}
+
+function avgX(line: number[]): number {
+  return ((line[0] ?? 0) + (line[2] ?? 0)) / 2;
+}
+
+function distance(p: number[], q: number[]): number {
+  const dx = (q[0] ?? 0) - (p[0] ?? 0);
+  const dy = (q[1] ?? 0) - (p[1] ?? 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * 두 라인 세그먼트의 직선 교차점 계산.
+ * 직선 일반형 (a·x + b·y = c) 기반. det ≈ 0 (평행) 시 null.
+ */
+function lineIntersect(l1: number[], l2: number[]): number[] | null {
+  const x1 = l1[0] ?? 0, y1 = l1[1] ?? 0, x2 = l1[2] ?? 0, y2 = l1[3] ?? 0;
+  const x3 = l2[0] ?? 0, y3 = l2[1] ?? 0, x4 = l2[2] ?? 0, y4 = l2[3] ?? 0;
+
+  const a1 = y2 - y1;
+  const b1 = x1 - x2;
+  const c1 = a1 * x1 + b1 * y1;
+
+  const a2 = y4 - y3;
+  const b2 = x3 - x4;
+  const c2 = a2 * x3 + b2 * y3;
+
+  const det = a1 * b2 - a2 * b1;
+  if (Math.abs(det) < 1e-6) return null;
+
+  return [
+    (b2 * c1 - b1 * c2) / det,
+    (a1 * c2 - a2 * c1) / det,
+  ];
+}
+
 /** Connected Components에서 면적 MIN_CC_AREA 이상인 텍스트 ROI 수 반환 */
 function countTextRegions(stats: any, numLabels: number): number {
   let count = 0;
@@ -306,6 +395,84 @@ function countTextRegions(stats: any, numLabels: number): number {
     if (area >= MIN_CC_AREA) count++;
   }
   return count;
+}
+
+/** Connected Components 결과에서 AR 오버레이용 텍스트 후보 폴리곤 추출 */
+function collectTextRegions(
+  stats: any,
+  numLabels: number,
+  width: number,
+  height: number,
+  homographyInv: any | null,
+): BiosTextRegion[] {
+  const candidates: BiosTextRegion[] = [];
+
+  for (let i = 1; i <= numLabels; i++) {
+    const x: number = stats.intAt(i, cv.CC_STAT_LEFT);
+    const y: number = stats.intAt(i, cv.CC_STAT_TOP);
+    const w: number = stats.intAt(i, cv.CC_STAT_WIDTH);
+    const h: number = stats.intAt(i, cv.CC_STAT_HEIGHT);
+    const area: number = stats.intAt(i, cv.CC_STAT_AREA);
+
+    if (!isLikelyTextRegion({ w, h, area, width, height })) continue;
+
+    const rectPoints: number[][] = [
+      [x, y],
+      [x + w, y],
+      [x + w, y + h],
+      [x, y + h],
+    ];
+    const points = homographyInv
+      ? rectPoints.map(point => mapPointByHomography(point[0] ?? 0, point[1] ?? 0, homographyInv))
+      : rectPoints;
+
+    candidates.push({ id: i, area, points });
+  }
+
+  return candidates
+    .sort((a, b) => b.area - a.area)
+    .slice(0, 28);
+}
+
+function isLikelyTextRegion({
+  w,
+  h,
+  area,
+  width,
+  height,
+}: {
+  w: number;
+  h: number;
+  area: number;
+  width: number;
+  height: number;
+}): boolean {
+  if (area < MIN_CC_AREA) return false;
+  if (w < 4 || h < 4) return false;
+  if (w > width * 0.75 || h > height * 0.25) return false;
+
+  const ratio = w / Math.max(h, 1);
+  return ratio >= 0.2 && ratio <= 18;
+}
+
+function mapPointByHomography(x: number, y: number, hInv: any): number[] {
+  const h00: number = hInv.doubleAt(0, 0);
+  const h01: number = hInv.doubleAt(0, 1);
+  const h02: number = hInv.doubleAt(0, 2);
+  const h10: number = hInv.doubleAt(1, 0);
+  const h11: number = hInv.doubleAt(1, 1);
+  const h12: number = hInv.doubleAt(1, 2);
+  const h20: number = hInv.doubleAt(2, 0);
+  const h21: number = hInv.doubleAt(2, 1);
+  const h22: number = hInv.doubleAt(2, 2);
+  const denom = h20 * x + h21 * y + h22;
+
+  if (Math.abs(denom) < 1e-6) return [x, y];
+
+  return [
+    (h00 * x + h01 * y + h02) / denom,
+    (h10 * x + h11 * y + h12) / denom,
+  ];
 }
 
 /** OCR 텍스트 줄 분리 → 2~60자 항목만 추출 */

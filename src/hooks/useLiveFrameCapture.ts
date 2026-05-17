@@ -23,13 +23,25 @@ import {
   BEST_PARAMS,
 } from '../lib/cv/changeDetection';
 import { preprocessBiosFrameForGuide, runBiosPipeline } from '../lib/cv/biosPipeline';
+import type { BiosTextRegion } from '../lib/cv/biosPipeline';
 import type { BiosType, CvFrameInput } from '../types';
+
+// vendor OCR 호출 제한 — 한 세션 내 최대 3회 시도, 시도 간 5초 cooldown
+const VENDOR_OCR_MAX_ATTEMPTS = 3;
+const VENDOR_OCR_COOLDOWN_MS  = 5000;
 
 /** CV Insight 패널에 전달할 라이브 메트릭 (300ms 스로틀) */
 export interface CvFrameInsightMetrics {
   qualityScore: number;   // 0-100
   changeCount:  number;   // 0..windowSize (연속 변화 프레임 수)
   histScore:    number;   // 0..1 (마지막 compareHist 유사도)
+}
+
+export interface BiosArOverlay {
+  corners: number[][] | null;
+  textRegions: BiosTextRegion[];
+  videoW: number;
+  videoH: number;
 }
 
 interface UseLiveFrameCaptureOptions {
@@ -40,8 +52,8 @@ interface UseLiveFrameCaptureOptions {
   onFrameChange:     (base64: string, histSnapshot: any, cvSummary: string) => void;
   onQualityFeedback?: (guidanceText: string) => void;
   onMetricsUpdate?:  (m: CvFrameInsightMetrics) => void;
-  /** AR 오버레이용: 모듈 1 Hough 검출 모서리 + 비디오 원본 해상도 (프레임 전송 시만 호출) */
-  onBiosOverlay?:    (corners: number[][] | null, videoW: number, videoH: number) => void;
+  /** AR 오버레이용: 모듈 1 Hough 모서리 + CC 텍스트 후보 + 비디오 원본 해상도 */
+  onBiosOverlay?:    (overlay: BiosArOverlay) => void;
   /** Task 6: 모듈 1 OCR 결과에서 BIOS vendor를 감지했을 때 호출 */
   onBiosVendorDetected?: (vendor: BiosType) => void;
   enableBiosVendorOcr?: boolean;
@@ -72,8 +84,19 @@ export function useLiveFrameCapture({
   const lastHistScoreRef   = useRef<number>(1);        // 마지막 비교 유사도 (1=동일)
   const lastMetricsRef     = useRef<number>(0);        // 메트릭 업데이트 스로틀 타임스탬프
   const vendorOcrRunningRef = useRef(false);
+  const vendorOcrAttemptsRef = useRef(0);              // 누적 OCR 시도 횟수 (성공 시 리셋)
+  const vendorOcrLastTryRef = useRef(0);               // 마지막 OCR 시도 타임스탬프
+  const prevVendorOcrEnabledRef = useRef(enableBiosVendorOcr);
   // stale guide 비교용: 응답 도착 시 LiveGuideMode에서 이 ref를 읽음
   const currentHistRef     = useRef<any>(null);
+
+  // enableBiosVendorOcr false → true 엣지에서 카운터 리셋
+  // (컨텍스트 변경 또는 vendor 감지 해제 시 새로운 시도 세션 시작)
+  if (enableBiosVendorOcr && !prevVendorOcrEnabledRef.current) {
+    vendorOcrAttemptsRef.current = 0;
+    vendorOcrLastTryRef.current  = 0;
+  }
+  prevVendorOcrEnabledRef.current = enableBiosVendorOcr;
 
   const processFrame = useCallback(() => {
     const video  = videoRef.current;
@@ -165,14 +188,36 @@ export function useLiveFrameCapture({
               `biosTextRegions=${preprocessed.textRegionCount}`,
               `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
             ].join(', ');
-            onBiosOverlay?.(preprocessed.corners, canvas.width, canvas.height);
+            onBiosOverlay?.({
+              corners: preprocessed.corners,
+              textRegions: preprocessed.textRegions,
+              videoW: canvas.width,
+              videoH: canvas.height,
+            });
           } catch {
             cvSummary = `${cvSummary}, biosPreprocess=failed`;
-            onBiosOverlay?.(null, canvas.width, canvas.height);
+            onBiosOverlay?.({
+              corners: null,
+              textRegions: [],
+              videoW: canvas.width,
+              videoH: canvas.height,
+            });
           }
 
-          if (enableBiosVendorOcr && onBiosVendorDetected && !vendorOcrRunningRef.current) {
+          // vendor OCR: 시도 횟수(최대 3회) + cooldown(5초) 제한
+          // — Tesseract.js는 모바일에서 1~3초 소요, 무제한 재시도 시 배터리/메모리 부담
+          const ocrCooledDown = now - vendorOcrLastTryRef.current > VENDOR_OCR_COOLDOWN_MS;
+          const ocrUnderLimit = vendorOcrAttemptsRef.current < VENDOR_OCR_MAX_ATTEMPTS;
+          if (
+            enableBiosVendorOcr
+            && onBiosVendorDetected
+            && !vendorOcrRunningRef.current
+            && ocrUnderLimit
+            && ocrCooledDown
+          ) {
             vendorOcrRunningRef.current = true;
+            vendorOcrAttemptsRef.current++;
+            vendorOcrLastTryRef.current  = now;
             const ocrFrame = new ImageData(
               new Uint8ClampedArray(rgba.data),
               rgba.width,
