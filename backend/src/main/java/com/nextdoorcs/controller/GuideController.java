@@ -63,7 +63,7 @@ public class GuideController {
 
     /**
      * DELETE /api/guide/{sessionId}
-     * 가이드 세션 종료 — [완료] 태그 감지 또는 사용자 수동 종료 시 호출
+     * 가이드 세션 종료 — 사용자 수동 종료 또는 "해결됐어요" 확인 시 호출
      */
     @DeleteMapping("/{sessionId}")
     public ResponseEntity<Void> deleteSession(@PathVariable String sessionId) {

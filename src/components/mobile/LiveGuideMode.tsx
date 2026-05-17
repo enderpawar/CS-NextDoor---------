@@ -78,6 +78,7 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
   const [contextSheetOpen,  setContextSheetOpen] = useState(false);
   const [qualityText,       setQualityText]      = useState('');
   const [streamError,       setStreamError]      = useState('');
+  const [resolutionStep,    setResolutionStep]   = useState<'idle' | 'action-done' | 'hidden'>('hidden');
 
   // CV Insight 패널 상태 (Task 3)
   const [cvPanelOpen,   setCvPanelOpen]   = useState(false);
@@ -252,6 +253,10 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
   // ── 수동 프레임 캡처 ("다음 단계" 버튼) ──────────────────────────────────
   const handleManualCapture = useCallback(async () => {
     if (guide.isSendingRef.current || guide.session?.status !== 'ACTIVE') return;
+    if (guide.streamText && resolutionStep !== 'hidden') {
+      setQualityText('먼저 안내한 조치를 해본 뒤 결과를 선택해주세요.');
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -266,7 +271,11 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
 
     const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
     let base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
-    let cvSummary = 'manualCapture=true';
+    let cvSummary = [
+      'manualCapture=true',
+      guide.streamText ? 'guidePhase=followup' : 'guidePhase=initial',
+      guide.streamText ? 'previousActionResult=unresolved' : 'previousActionResult=none',
+    ].join(', ');
 
     try {
       if (!cvReady) throw new Error('cv not ready');
@@ -312,7 +321,15 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     } catch {
       // sendFrame 내부에서 처리됨
     }
-  }, [guide, canvasRef, videoRef, cvReady, biosTypeSource, applyDetectedVendor]);
+  }, [
+    guide,
+    canvasRef,
+    videoRef,
+    cvReady,
+    biosTypeSource,
+    applyDetectedVendor,
+    resolutionStep,
+  ]);
 
   const { currentHistRef } = useLiveFrameCapture({
     canvasRef,
@@ -325,7 +342,21 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     onBiosOverlay:    handleBiosOverlay,
     onBiosVendorDetected: applyDetectedVendor,
     enableBiosVendorOcr:  biosTypeSource !== 'manual' && !vendorDetectedRef.current,
+    enableAutoFrameSend:  false,
   });
+
+  // ── stale guide 감지: isStreaming false 전환 시 ────────────────────────────
+  useEffect(() => {
+    if (guide.isStreaming) return;
+    if (!guide.streamText || guide.session?.status !== 'ACTIVE') return;
+    setResolutionStep('idle');
+  }, [guide.isStreaming, guide.streamText, guide.session?.status]);
+
+  useEffect(() => {
+    if (guide.isStreaming) {
+      setResolutionStep('hidden');
+    }
+  }, [guide.isStreaming]);
 
   // ── stale guide 감지: isStreaming false 전환 시 ────────────────────────────
   useEffect(() => {
@@ -414,7 +445,7 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     };
   }, [startCamera, stopCamera]);
 
-  // ── 세션 DONE 전환 감지 (Gemini [완료] 태그 자동 종료 포함) ──────────────
+  // ── 세션 DONE 전환 감지 — 사용자 종료/해결 확인 시에만 도달 ─────────────
   useEffect(() => {
     if (guide.session?.status === 'DONE') {
       if (isSwitchingContextRef.current) {
@@ -458,6 +489,18 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     capturedHistRef.current?.delete();
     capturedHistRef.current = null;
   }, [guide, stopCamera]);
+
+  const handleResolvedByUser = useCallback(() => {
+    guide.endSession();
+    stopCamera();
+    setPage('done');
+    setResolutionStep('hidden');
+  }, [guide, stopCamera]);
+
+  const handleStillUnresolved = useCallback(() => {
+    setResolutionStep('hidden');
+    setQualityText('현재 화면을 비춘 상태에서 다음 단계를 누르면 이어서 안내할게요.');
+  }, []);
 
   // ── 재시작 (완료 화면 → 카메라 화면) ──────────────────────────────────────
   const handleRestart = useCallback(() => {
@@ -517,6 +560,15 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
 
   // ── 카메라 화면 ─────────────────────────────────────────────────────────
   const displayText = guide.streamText || STATIC_FIRST_GUIDE[context];
+  const isWaitingForActionResult =
+    !!guide.streamText
+    && guide.session?.status === 'ACTIVE'
+    && !guide.isStreaming
+    && resolutionStep !== 'hidden';
+  const nextButtonDisabled =
+    guide.captureState !== 'idle'
+    || guide.session?.status !== 'ACTIVE'
+    || isWaitingForActionResult;
 
   return (
     <div className="nd-live-guide-page nd-live-guide-camera-root">
@@ -556,7 +608,7 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
       {isStandalone && (
         <div className="nd-standalone-warn" role="alert">
           <span aria-hidden="true">⚠️</span>
-          <span>더 정확한 진단이 필요하다면 컴퓨터에서 만나요. 지금은 휴대폰 카메라로 부팅 전 하드웨어 단서를 먼저 확인할 수 있습니다.</span>
+          <span>지금은 휴대폰 카메라로 화면과 장치 상태를 보며 단계별로 확인합니다.</span>
         </div>
       )}
 
@@ -633,6 +685,28 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
             elapsed={guide.elapsed}
             staleGuide={guide.staleGuide}
           />
+          {guide.streamText && guide.session?.status === 'ACTIVE' && !guide.isStreaming && resolutionStep !== 'hidden' && (
+            <div className="nd-resolution-check" role="group" aria-label="조치 결과 확인">
+              {resolutionStep === 'idle' ? (
+                <>
+                  <span>안내한 조치를 해보셨나요?</span>
+                  <button type="button" onClick={() => setResolutionStep('action-done')}>
+                    해봤어요
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>증상이 해결되셨나요?</span>
+                  <button type="button" onClick={handleResolvedByUser}>
+                    해결됐어요
+                  </button>
+                  <button type="button" onClick={handleStillUnresolved}>
+                    아직이에요
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -664,12 +738,12 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
             type="button"
             className="nd-action-bar-btn nd-action-bar-primary"
             onClick={handleManualCapture}
-            disabled={guide.captureState !== 'idle' || guide.session?.status !== 'ACTIVE'}
+            disabled={nextButtonDisabled}
             aria-label="현재 화면 분석 요청"
           >
             {guide.captureState !== 'idle'
               ? <span className="nd-action-bar-analyzing">분석 중…</span>
-              : <><span className="nd-action-bar-icon">✓</span><span className="nd-action-bar-label">다음 단계</span></>
+              : <><span className="nd-action-bar-icon">✓</span><span className="nd-action-bar-label">{guide.streamText ? '이어가기' : '다음 단계'}</span></>
             }
           </button>
 

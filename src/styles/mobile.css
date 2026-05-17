@@ -43,31 +43,142 @@
 }
 
 /* ── GuideBubble ────────────────────────────────────────────────────────────── */
+.nd-guide-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .nd-guide-bubble {
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(196, 197, 214, 0.6);
-  border-radius: 18px;
-  padding: 1rem 1.25rem;
-  font-size: 0.95rem;
-  line-height: 1.75;
+  background: rgba(250, 251, 255, 0.94);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(196, 197, 214, 0.68);
+  border-radius: 14px;
+  padding: 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
   color: var(--color-text-primary, #1f2431);
   min-height: 64px;
-  box-shadow: 0 4px 16px rgba(38, 56, 138, 0.08);
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(13, 18, 35, 0.18);
   transition: box-shadow 0.2s;
 }
 
 .nd-guide-bubble.streaming {
-  box-shadow: 0 4px 20px rgba(90, 129, 250, 0.18);
+  box-shadow: 0 12px 34px rgba(31, 97, 141, 0.20);
+}
+
+.nd-guide-bubble-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid rgba(205, 210, 226, 0.72);
 }
 
 .nd-guide-bubble-label {
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--color-brand, #5a81fa);
-  margin-bottom: 0.4rem;
+  color: #3563c9;
+  margin-bottom: 0.16rem;
+}
+
+.nd-guide-bubble-title {
+  font-size: 0.94rem;
+  font-weight: 900;
+  color: var(--color-heading, #191c1f);
+  line-height: 1.22;
+}
+
+.nd-guide-status-pill {
+  flex: 0 0 auto;
+  min-width: 54px;
+  padding: 0.22rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(80, 88, 108, 0.10);
+  color: #4d566b;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.nd-guide-status-pill.active {
+  background: rgba(24, 128, 91, 0.13);
+  color: #08704e;
+}
+
+.nd-guide-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 0.65rem;
+}
+
+.nd-guide-section {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: flex-start;
+}
+
+.nd-guide-section.prominent {
+  padding: 0.62rem;
+  border-radius: 10px;
+  background: rgba(28, 73, 117, 0.07);
+  border: 1px solid rgba(67, 115, 168, 0.16);
+}
+
+.nd-guide-section.question {
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(205, 210, 226, 0.58);
+}
+
+.nd-guide-section-icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(53, 99, 201, 0.10);
+  color: #3563c9;
+}
+
+.nd-guide-section-body {
+  min-width: 0;
+}
+
+.nd-guide-section-label {
+  margin: 0 0 0.16rem;
+  color: #667085;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.nd-guide-section-text {
+  margin: 0;
+  color: var(--color-text-primary, #1f2431);
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.48;
+  white-space: pre-wrap;
+}
+
+.nd-guide-action-list {
+  margin: 0;
+  padding-left: 1.05rem;
+  color: var(--color-text-primary, #1f2431);
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.nd-guide-action-list li + li {
+  margin-top: 0.32rem;
 }
 
 .nd-guide-cursor {
@@ -109,6 +220,14 @@
   gap: 0.5rem;
   font-size: 0.8rem;
   color: var(--color-text-secondary, #5d6274);
+}
+
+.nd-spin-icon {
+  animation: nd-spin 0.9s linear infinite;
+}
+
+@keyframes nd-spin {
+  to { transform: rotate(360deg); }
 }
 
 .nd-analyzing-sub {
@@ -1641,13 +1760,56 @@
   z-index: 17;
 }
 
-/* AI 가이드 버블: 액션 바 바로 위 */
-.nd-live-guide-camera-root .nd-guide-bubble {
+/* AI 가이드 패널: 액션 바 바로 위 */
+.nd-live-guide-camera-root .nd-guide-stack {
+  position: absolute;
+  bottom: calc(122px + 0.75rem);
+  left: 1rem;
+  right: 1rem;
+  z-index: 15;
+}
+
+.nd-resolution-check {
   position: absolute;
   bottom: calc(80px + 0.75rem);
   left: 1rem;
   right: 1rem;
-  z-index: 15;
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  min-height: 42px;
+  padding: 0.45rem 0.55rem 0.45rem 0.8rem;
+  border-radius: 10px;
+  background: rgba(10, 12, 26, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.90);
+  font-size: 0.78rem;
+  font-weight: 800;
+  backdrop-filter: blur(18px);
+}
+
+.nd-resolution-check span {
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+
+.nd-resolution-check button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 0.62rem;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.nd-resolution-check button:first-of-type {
+  background: rgba(90, 129, 250, 0.88);
 }
 
 /* 액션 바: 하단 고정 + 다크 반투명 */

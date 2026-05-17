@@ -1,4 +1,5 @@
 import '../../styles/mobile.css';
+import { AlertTriangle, CheckCircle2, Eye, Loader2, ListChecks, MessageCircleQuestion } from 'lucide-react';
 import type { CaptureState } from '../../hooks/useGeminiLiveGuide';
 
 interface Props {
@@ -16,17 +17,23 @@ export default function GuideBubble({
   elapsed,
   staleGuide,
 }: Props) {
+  const sections = splitGuideText(text);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+    <div className="nd-guide-stack">
       {/* 3단계 피드백 UI */}
       {captureState !== 'idle' && (
         <div className="nd-live-guide-feedback-row">
           {captureState === 'captured' && (
-            <span className="nd-capture-badge">📸 캡처됨</span>
+            <span className="nd-capture-badge">
+              <CheckCircle2 size={14} aria-hidden="true" />
+              캡처됨
+            </span>
           )}
           {captureState === 'analyzing' && (
             <div className="nd-analyzing-bar">
-              <span>⏳ 분석 중 {elapsed}초</span>
+              <Loader2 size={14} aria-hidden="true" className="nd-spin-icon" />
+              <span>분석 중 {elapsed}초</span>
               {elapsed >= 3 && elapsed < 7 && (
                 <span className="nd-analyzing-sub">잠시만요!</span>
               )}
@@ -40,19 +47,94 @@ export default function GuideBubble({
 
       {/* 안내 버블 */}
       <div className={`nd-guide-bubble${isStreaming ? ' streaming' : ''}`}>
-        <div className="nd-guide-bubble-label">AI 안내</div>
-        <span>
-          {text}
-          {isStreaming && <span className="nd-guide-cursor" aria-hidden="true" />}
-        </span>
+        <div className="nd-guide-bubble-head">
+          <div>
+            <div className="nd-guide-bubble-label">AI 안내</div>
+            <div className="nd-guide-bubble-title">
+              {isStreaming ? '화면을 분석하고 있어요' : '다음 순서대로 확인하세요'}
+            </div>
+          </div>
+          <span className={`nd-guide-status-pill${isStreaming ? ' active' : ''}`}>
+            {isStreaming ? '분석 중' : '대기 중'}
+          </span>
+        </div>
+
+        <div className="nd-guide-sections">
+          {sections.observation && (
+            <section className="nd-guide-section">
+              <div className="nd-guide-section-icon" aria-hidden="true">
+                <Eye size={15} />
+              </div>
+              <div className="nd-guide-section-body">
+                <p className="nd-guide-section-label">현재 상태</p>
+                <p className="nd-guide-section-text">{sections.observation}</p>
+              </div>
+            </section>
+          )}
+
+          {sections.actions.length > 0 && (
+            <section className="nd-guide-section prominent">
+              <div className="nd-guide-section-icon" aria-hidden="true">
+                <ListChecks size={15} />
+              </div>
+              <div className="nd-guide-section-body">
+                <p className="nd-guide-section-label">해볼 일</p>
+                <ol className="nd-guide-action-list">
+                  {sections.actions.map((action, index) => (
+                    <li key={`${action}-${index}`}>{action}</li>
+                  ))}
+                </ol>
+              </div>
+            </section>
+          )}
+
+          {sections.question && (
+            <section className="nd-guide-section question">
+              <div className="nd-guide-section-icon" aria-hidden="true">
+                <MessageCircleQuestion size={15} />
+              </div>
+              <div className="nd-guide-section-body">
+                <p className="nd-guide-section-label">확인</p>
+                <p className="nd-guide-section-text">{sections.question}</p>
+              </div>
+            </section>
+          )}
+        </div>
+
+        {isStreaming && <span className="nd-guide-cursor" aria-hidden="true" />}
       </div>
 
       {/* stale guide 경고 */}
       {staleGuide && (
         <div className="nd-stale-warning" role="alert">
-          ⚠️ 화면이 바뀐 것 같아요. 현재 화면을 다시 비춰주세요.
+          <AlertTriangle size={14} aria-hidden="true" />
+          화면이 바뀐 것 같아요. 현재 화면을 다시 비춰주세요.
         </div>
       )}
     </div>
   );
+}
+
+function splitGuideText(text: string) {
+  const parts = text
+    .split(/\n+/)
+    .map(part => part.replace(/\*\*/g, '').trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return { observation: '', actions: [], question: '' };
+  }
+
+  const last = parts[parts.length - 1] ?? '';
+  const hasQuestion = /[?？]|나요|셨나요|인가요|해주세요$/.test(last);
+  const question = hasQuestion && parts.length > 1 ? last : '';
+  const body = question ? parts.slice(0, -1) : parts;
+  const observation = body[0] ?? '';
+  const actions = body.slice(1);
+
+  if (!observation && actions.length === 0 && text.trim()) {
+    return { observation: text.trim(), actions: [], question: '' };
+  }
+
+  return { observation, actions, question };
 }

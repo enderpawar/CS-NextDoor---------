@@ -76,7 +76,6 @@ public class LiveGuideService {
                     }
                 }
 
-                // [완료] 태그가 응답에 없으면 추가하지 않음 — Gemini가 판단
                 emitter.send(SseEmitter.event().data("[DONE]"));
                 emitter.complete();
             } catch (Exception e) {
@@ -118,6 +117,16 @@ public class LiveGuideService {
             ? ""
             : "\n\nOpenCV 전처리 요약:\n" + cvSummary;
 
+        String workflowText = "";
+        if (cvSummary != null && cvSummary.contains("guidePhase=followup")) {
+            workflowText = """
+
+            현재 요청은 새 문제 분석이 아니라 같은 세션의 후속 단계입니다.
+            이전에 안내한 조치가 해결되지 않았다는 전제로, 같은 조치를 반복하지 말고 다음으로 확인할 1단계만 제시하세요.
+            이전 화면 설명은 필요한 경우 한 줄로만 갱신하고, 답변의 중심은 다음 조치와 확인 질문에 두세요.
+            """;
+        }
+
         String contextDesc = switch (context) {
             case "NO_BOOT"          -> "PC 부팅 불가 또는 화면 표시 실패";
             case "SLOW_PC"          -> "PC 성능 저하, 멈춤, 발열, 팬 소음";
@@ -137,12 +146,14 @@ public class LiveGuideService {
             화면을 분석하고:
             1. 현재 보이는 화면/오류/상태를 한 줄로 확인
             2. PWA 환경에서도 사용자가 직접 할 수 있는 확인 또는 조작 1~2단계 안내
-            3. 정확한 원인 판별에 PC 내부 데이터가 필요하면 "더 정확한 진단이 필요하다면 컴퓨터에서 만나요."라고 자연스럽게 안내
-            4. 작업이 완전히 완료됐으면 응답 끝에 "[완료]" 태그 포함
+            3. 사용자가 아직 조치 결과를 말하지 않았다면 절대 "해결되었습니다", "완료되었습니다"처럼 단정하지 말 것
+            4. 응답의 정상 흐름은 반드시 "현재 상태 확인 → 조치사항 1~2개 제안 → 조치 후 확인 질문" 순서로 구성
+            5. 마지막 문장은 가능하면 "조치해보신 뒤 증상이 해결되셨나요?"처럼 사용자 확인 질문으로 끝낼 것
+            6. "[완료]" 같은 종료 태그를 절대 출력하지 말 것. 세션 종료 여부는 사용자가 앱 버튼으로 결정한다
 
             OpenCV 전처리 요약은 화면 품질과 BIOS 화면 정면화 여부를 판단하는 보조 근거로만 사용하세요.
-            답변은 3~5문장 이내로 간결하게.%s%s
-            """.formatted(contextDesc, historyText, cvText);
+            답변은 3~5문장 이내로 간결하게.%s%s%s
+            """.formatted(contextDesc, historyText, cvText, workflowText);
     }
 
     // ── 내부 레코드 ───────────────────────────────────────────────────────────

@@ -297,7 +297,11 @@ function extractQuadCorners(
     const y1 = lines.data32S[i * 4 + 1];
     const x2 = lines.data32S[i * 4 + 2];
     const y2 = lines.data32S[i * 4 + 3];
-    const angleDeg = Math.abs(Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI));
+    // atan2 결과는 (-180°, 180°]. HoughLinesP의 endpoint 순서는 임의이므로
+    // 오른쪽→왼쪽으로 그려진 수평선은 ~±180°가 되어 |angle|>70 검사로 vLines에 잘못 들어감.
+    // [0, 90°]로 정규화한 다음 분류해야 수평/수직이 endpoint 순서와 무관하게 일관.
+    const rawAngle = Math.abs(Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI));
+    const angleDeg = rawAngle > 90 ? 180 - rawAngle : rawAngle;
 
     if (angleDeg < 20)       hLines.push([x1, y1, x2, y2]);
     else if (angleDeg > 70)  vLines.push([x1, y1, x2, y2]);
@@ -314,31 +318,42 @@ function extractQuadCorners(
   const leftLine   = vLines[0]!;
   const rightLine  = vLines[vLines.length - 1]!;
 
-  // 교차점 = 화면 모서리
-  const tl = lineIntersect(topLine,    leftLine);
-  const tr = lineIntersect(topLine,    rightLine);
-  const br = lineIntersect(bottomLine, rightLine);
-  const bl = lineIntersect(bottomLine, leftLine);
+  // 교차점 4개 (라벨은 임시 — 아래에서 좌표 기반으로 재정렬)
+  const rawCorners = [
+    lineIntersect(topLine,    leftLine),
+    lineIntersect(topLine,    rightLine),
+    lineIntersect(bottomLine, rightLine),
+    lineIntersect(bottomLine, leftLine),
+  ];
 
-  if (!tl || !tr || !br || !bl) return null;
+  if (rawCorners.some(c => c === null)) return null;
 
   // 화면을 크게 벗어난 교차점은 평행에 가깝거나 잘못된 라인 조합 → 거부
   const marginX = width  * 0.2;
   const marginY = height * 0.2;
-  for (const corner of [tl, tr, br, bl]) {
-    const x = corner[0] ?? 0;
-    const y = corner[1] ?? 0;
+  for (const corner of rawCorners) {
+    const x = corner![0] ?? 0;
+    const y = corner![1] ?? 0;
     if (x < -marginX || x > width  + marginX) return null;
     if (y < -marginY || y > height + marginY) return null;
   }
 
+  // 좌표 기반 정규화 — 라인 분류/선택이 어긋났을 때도 폴리곤이 bowtie(X자)
+  // 형태로 자기 교차되지 않도록 [TL, TR, BR, BL] CW 순으로 재정렬.
+  // 트릭: TL은 x+y가 최소, BR은 x+y가 최대, TR은 x-y가 최대, BL은 x-y가 최소.
+  const orderedCorners = orderCornersClockwise(rawCorners as number[][]);
+  const [tl, tr, br, bl] = orderedCorners;
+
   // 사각형 크기 게이트 — 너무 작으면 노이즈로 판단
-  const quadW = Math.max(distance(tl, tr), distance(bl, br));
-  const quadH = Math.max(distance(tl, bl), distance(tr, br));
+  const quadW = Math.max(distance(tl!, tr!), distance(bl!, br!));
+  const quadH = Math.max(distance(tl!, bl!), distance(tr!, br!));
   if (quadW < width * 0.15 || quadH < height * 0.15) return null;
 
+  // Convex 검증 — 4개 외적 부호가 모두 동일해야 자기 교차가 없는 단순 다각형
+  if (!isConvexQuad(orderedCorners)) return null;
+
   return {
-    src: [tl, tr, br, bl],
+    src: orderedCorners,
     dst: [
       [0, 0],
       [width - 1, 0],
@@ -346,6 +361,45 @@ function extractQuadCorners(
       [0, height - 1],
     ],
   };
+}
+
+/**
+ * 4개의 임의 순서 좌표를 [TL, TR, BR, BL] CW 순으로 재배열.
+ *   TL: x+y 최소  /  BR: x+y 최대
+ *   TR: x-y 최대  /  BL: x-y 최소
+ * 출처: PyImageSearch — 4-point perspective transform 튜토리얼.
+ */
+function orderCornersClockwise(points: number[][]): number[][] {
+  let tl = points[0]!, br = points[0]!, tr = points[0]!, bl = points[0]!;
+  let minSum = Infinity, maxSum = -Infinity, minDiff = Infinity, maxDiff = -Infinity;
+  for (const p of points) {
+    const sum  = (p[0] ?? 0) + (p[1] ?? 0);
+    const diff = (p[0] ?? 0) - (p[1] ?? 0);
+    if (sum  < minSum)  { minSum  = sum;  tl = p; }
+    if (sum  > maxSum)  { maxSum  = sum;  br = p; }
+    if (diff > maxDiff) { maxDiff = diff; tr = p; }
+    if (diff < minDiff) { minDiff = diff; bl = p; }
+  }
+  return [tl, tr, br, bl];
+}
+
+/** 4 모서리가 단순(비교차) convex 사각형인지 검사 — 외적 부호 일치 확인 */
+function isConvexQuad(corners: number[][]): boolean {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = corners[i]!;
+    const b = corners[(i + 1) % 4]!;
+    const c = corners[(i + 2) % 4]!;
+    const dx1 = (b[0] ?? 0) - (a[0] ?? 0);
+    const dy1 = (b[1] ?? 0) - (a[1] ?? 0);
+    const dx2 = (c[0] ?? 0) - (b[0] ?? 0);
+    const dy2 = (c[1] ?? 0) - (b[1] ?? 0);
+    const cross = dx1 * dy2 - dy1 * dx2;
+    if (Math.abs(cross) < 1e-3) continue;  // 거의 일직선 — 무시
+    if (sign === 0) sign = cross > 0 ? 1 : -1;
+    else if ((cross > 0 ? 1 : -1) !== sign) return false;
+  }
+  return true;
 }
 
 function avgY(line: number[]): number {

@@ -57,6 +57,8 @@ interface UseLiveFrameCaptureOptions {
   /** Task 6: 모듈 1 OCR 결과에서 BIOS vendor를 감지했을 때 호출 */
   onBiosVendorDetected?: (vendor: BiosType) => void;
   enableBiosVendorOcr?: boolean;
+  /** true일 때만 화면 변화 감지를 Gemini 프레임 전송으로 연결한다. */
+  enableAutoFrameSend?: boolean;
   cooldownMs?:       number;
   histThreshold?:    number;
   minQualityScore?:  number;
@@ -73,6 +75,7 @@ export function useLiveFrameCapture({
   onBiosOverlay,
   onBiosVendorDetected,
   enableBiosVendorOcr = false,
+  enableAutoFrameSend = true,
   cooldownMs      = 2000,
   histThreshold   = BEST_PARAMS.threshold,
   minQualityScore = 30,
@@ -158,7 +161,7 @@ export function useLiveFrameCapture({
 
       lastHistScoreRef.current = score;  // 메트릭 패널용 저장
 
-      if (changed) {
+      if (changed && enableAutoFrameSend) {
         changeCountRef.current++;
         // 연속 3프레임 모두 변화 시에만 전송 (false positive — 손 떨림/Rolling Shutter 차단)
         if (changeCountRef.current >= BEST_PARAMS.windowSize) {
@@ -260,7 +263,7 @@ export function useLiveFrameCapture({
   }, [
     cvReady, canvasRef, videoRef, isSendingRef,
     onFrameChange, onQualityFeedback, onMetricsUpdate, onBiosOverlay,
-    onBiosVendorDetected, enableBiosVendorOcr,
+    onBiosVendorDetected, enableBiosVendorOcr, enableAutoFrameSend,
     cooldownMs, histThreshold, minQualityScore,
   ]);
 

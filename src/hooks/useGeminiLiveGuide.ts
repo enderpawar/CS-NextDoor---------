@@ -7,7 +7,7 @@
  *   - EventSource(GET 전용) 대신 fetch() + ReadableStream으로 POST 본문 전송
  *   - isSendingRef: 이전 응답 완료 전 새 프레임 전송 차단
  *   - AbortController: 언마운트/endSession 시 진행 중 스트림 즉시 취소
- *   - [완료] 태그: 청크 분할 대응 → accumulated 버퍼 기준으로 판단
+ *   - 세션 완료는 사용자 명시 액션으로만 처리. 모델 응답 태그로 자동 종료하지 않음.
  *   - histSnapshot: 전달받은 OpenCV Mat — finally에서 반드시 .delete()
  */
 
@@ -16,8 +16,6 @@ import type { GuideContext, GuideSession, GuideMessage } from '../types';
 import { API_BASE_URL } from '../api/config';
 
 const MAX_HISTORY  = 6;   // 최대 N턴 슬라이딩 히스토리 (토큰 누적 방지)
-const SESSION_TTL  = 15 * 60 * 1000;   // 15분 (ms)
-
 // 백엔드 없이 데모 동작을 위한 모의 모드
 // VITE_USE_MOCK=true 또는 개발환경 + 백엔드 미응답 시 자동 전환
 const MOCK_RESPONSES: Record<string, string> = {
@@ -31,6 +29,15 @@ const MOCK_RESPONSES: Record<string, string> = {
   APP_NOT_OPENING: '📺 오류 화면이 보여요!\n\n오류 코드나 메시지를 알려주시면 정확한 원인을 찾을 수 있어요.\n\n일단 해당 프로그램을 **제어판 → 프로그램 제거**에서 지운 뒤 재설치해보세요.',
   NETWORK_ISSUE:   '📺 네트워크 상태 화면이에요!\n\nWi-Fi 아이콘에 느낌표가 있으면 IP 충돌이나 DNS 문제일 수 있어요.\n\n`ipconfig /flushdns` 명령을 관리자 CMD에서 실행해보세요.',
   BLUE_SCREEN:     '📺 블루스크린이에요!\n\n중지 코드가 보이시나요? 코드를 알려주시면 정확한 원인을 찾을게요.\n\n`MEMORY_MANAGEMENT`면 RAM 문제, `DRIVER_IRQL`이면 드라이버 문제일 가능성이 높아요.',
+};
+
+const MOCK_FOLLOW_UP_RESPONSES: Record<string, string> = {
+  NO_BOOT:         '이전 조치로 해결되지 않았다면 다음은 케이블과 입력 소스 확인이에요.\n\n모니터 전원 LED가 켜져 있는지 보고, HDMI/DP 케이블을 뺐다가 다시 꽂은 뒤 모니터 입력이 현재 케이블 포트로 맞는지 확인해주세요.\n\n확인 후 화면이 나오나요?',
+  SLOW_PC:         '이전 조치 후에도 느리다면 시작 프로그램을 줄여볼게요.\n\n작업 관리자 → 시작프로그램 탭에서 영향도가 높은 항목을 하나씩 사용 안 함으로 바꾼 뒤 재부팅해주세요.\n\n재부팅 후에도 같은 증상이 있나요?',
+  APP_NOT_OPENING: '재설치로도 해결되지 않았다면 권한이나 런타임 문제를 확인할 차례예요.\n\n앱을 우클릭해서 관리자 권한으로 실행해보고, 같은 오류 문구가 반복되는지 확인해주세요.\n\n오류가 그대로 나오나요?',
+  NETWORK_ISSUE:   'DNS 초기화 후에도 안 된다면 연결 경로를 분리해서 볼게요.\n\n휴대폰 핫스팟에 연결했을 때 인터넷이 되는지 확인해주세요. 핫스팟은 되고 집 Wi-Fi만 안 되면 공유기 쪽 문제일 가능성이 큽니다.\n\n핫스팟에서는 연결되나요?',
+  BLUE_SCREEN:     '같은 블루스크린이 반복된다면 최근 변경 사항부터 되돌려볼게요.\n\n최근 설치한 드라이버나 프로그램이 있다면 안전 모드에서 제거한 뒤 재부팅해주세요.\n\n제거 후에도 블루스크린이 나오나요?',
+  BIOS_BOOT:       '이전 BIOS 조치로 해결되지 않았다면 부팅 장치 인식부터 확인할게요.\n\nBIOS의 Boot 메뉴에서 SSD나 USB가 목록에 보이는지 확인해주세요. 목록에 없다면 저장장치 연결이나 USB 제작 상태를 먼저 봐야 합니다.\n\n부팅 장치가 목록에 보이나요?',
 };
 
 async function mockStream(text: string, onChunk: (chunk: string) => void): Promise<void> {
@@ -112,8 +119,6 @@ export function useGeminiLiveGuide() {
     setStreamText('');
     setStaleGuide(false);
 
-    // 15분 후 자동 종료
-    sessionTimerRef.current = setTimeout(() => endSession(), SESSION_TTL);
   }, [endSession]);
 
   // ── 프레임 전송 + SSE 스트리밍 ─────────────────────────────────────────────
@@ -158,14 +163,17 @@ export function useGeminiLiveGuide() {
 
       setIsStreaming(true);
       setStreamText('');
-      let accumulated = '';      // [완료] 감지용 원문
-      let displayed   = '';      // 화면 표시용 ([완료] 태그 제거)
+      let accumulated = '';      // 히스토리 저장용 원문
+      let displayed   = '';      // 화면 표시용
 
       try {
         // mock 세션이면 MOCK_RESPONSES 스트리밍 시뮬레이션
         if (session.sessionId.startsWith('mock-')) {
           await new Promise(r => setTimeout(r, 800));   // 네트워크 지연 모사
-          const mockText = MOCK_RESPONSES[session.context] ?? '화면이 감지됐어요! 더 자세히 보여주시면 구체적인 안내를 드릴게요.';
+          const isFollowUp = cvSummary?.includes('guidePhase=followup');
+          const mockText = isFollowUp
+            ? (MOCK_FOLLOW_UP_RESPONSES[session.context] ?? '이전 조치로 해결되지 않았으니 다음 단계를 볼게요. 화면에서 바뀐 부분을 기준으로 다른 원인을 하나씩 확인해주세요. 확인 후 증상이 해결되셨나요?')
+            : (MOCK_RESPONSES[session.context] ?? '화면이 감지됐어요! 더 자세히 보여주시면 구체적인 안내를 드릴게요.');
           await mockStream(mockText, chunk => {
             accumulated += chunk;
             displayed   += chunk;
@@ -211,12 +219,10 @@ export function useGeminiLiveGuide() {
               if (!line.startsWith('data: ')) continue;
               const data = line.slice(6);
               if (data === '[DONE]') {
-                // 누적 버퍼 기준 [완료] 감지 — 청크 분할 무관
-                if (accumulated.includes('[완료]')) endSession();
                 return;
               }
               accumulated += data;
-              // [완료] 태그는 세션 종료 신호이므로 화면에 표시하지 않음
+              // 레거시 백엔드/모델이 태그를 보내도 세션 종료 신호로 쓰지 않고 표시만 제거
               const clean = data.replace(/\[완료\]/g, '');
               if (clean) {
                 displayed += clean;
