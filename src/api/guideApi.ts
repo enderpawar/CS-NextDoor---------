@@ -1,7 +1,7 @@
 // 라이브 카메라 가이드 API 레이어
 // /api/guide/* 엔드포인트 래핑
 
-import type { GuideContext, GuideMessage } from '../types';
+import type { GuideContext, GuideMessage, GuideOcrRegion } from '../types';
 import { API_BASE_URL } from './config';
 
 export interface GuideStartResponse {
@@ -32,12 +32,15 @@ export async function sendGuideFrame(
   frameBase64: string,
   history: GuideMessage[],
   cvSummary?: string,
+  ocrRegions?: GuideOcrRegion[],
+  userQuestion?: string,
+  taskGoal?: string,
   signal?: AbortSignal,
 ): Promise<Response> {
   const res = await fetch(`${API_BASE_URL}/api/guide/${sessionId}/frame`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ frameBase64, history, cvSummary }),
+    body:    JSON.stringify({ frameBase64, history, cvSummary, ocrRegions: ocrRegions ?? [], userQuestion, taskGoal }),
     signal,
   });
   if (!res.ok) throw new Error(`프레임 전송 실패: ${res.status}`);

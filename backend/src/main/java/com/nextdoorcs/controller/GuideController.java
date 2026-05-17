@@ -57,7 +57,10 @@ public class GuideController {
             sessionId,
             req.frameBase64(),
             req.history(),
-            req.cvSummary()
+            req.cvSummary(),
+            req.ocrRegions(),
+            req.userQuestion(),
+            req.taskGoal()
         );
     }
 

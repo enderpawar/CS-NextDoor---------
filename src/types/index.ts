@@ -109,6 +109,7 @@ export type RecordingState = 'idle' | 'recording' | 'recorded';
 // ── Live Camera Guide Mode ────────────────────────────────────────────────────
 
 export type GuideContext =
+  | 'GENERAL'            // 사용자가 상황을 특정하지 못함 — 화면 단서로 먼저 분류
   | 'NO_BOOT'            // 전원은 들어오지만 부팅/화면 표시 실패
   | 'SLOW_PC'            // 성능 저하, 멈춤, 발열, 팬 소음
   | 'APP_NOT_OPENING'    // 프로그램 실행 불가, 오류 팝업
@@ -125,6 +126,25 @@ export interface GuideSession {
   sessionId: string;
   context: GuideContext;
   status: 'ACTIVE' | 'DONE';
+}
+
+export interface GuideOcrRegion {
+  id: string;
+  text: string;
+  confidence: number;
+  bbox: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  };
+  points: number[][];
+}
+
+export interface GuideArTarget {
+  targetId: string;
+  label: string;
+  reason?: string;
 }
 
 // ── CV Harness / Frame Analysis ──────────────────────────────────────────────

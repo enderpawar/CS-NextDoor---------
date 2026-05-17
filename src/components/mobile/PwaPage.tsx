@@ -11,9 +11,9 @@ import { useState } from 'react';
 import {
   Camera, Mic, Sparkles, Cpu, PowerOff,
   Volume2, Monitor, History, User, Home as HomeIcon,
-  ArrowRight, Check,
+  ArrowRight,
 } from 'lucide-react';
-import type { BiosType } from '../../types';
+import type { BiosType, GuideContext } from '../../types';
 import '../../styles/mobile.css';
 import LiveGuideMode  from './LiveGuideMode';
 import BiosTypeSelector from './BiosTypeSelector';
@@ -38,18 +38,31 @@ const C = {
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 type PwaView = 'onboarding' | 'home' | 'context' | 'live-guide' | 'audio-capture';
 
-interface CtxOption { id: string; icon: React.ReactNode; title: string; sub: string; }
-
-const CTX_OPTIONS: CtxOption[] = [
-  { id: 'off',   icon: <PowerOff size={22}/>, title: 'PC가 켜지지 않아요',       sub: '전원 버튼을 눌러도 반응이 없거나' },
-  { id: 'bios',  icon: <Cpu size={22}/>,      title: '검은 화면에 글자만 보여요', sub: 'BIOS / POST 화면일 수 있어요' },
-  { id: 'error', icon: <Monitor size={22}/>,  title: '에러 메시지가 떴어요',      sub: 'BSOD · 영문 에러 코드' },
-  { id: 'beep',  icon: <Volume2 size={22}/>,  title: '비프음이 들려요',           sub: '삐 — 삐삐 같은 패턴 소리' },
-  { id: 'crash', icon: <Monitor size={22}/>,  title: '화면이 깨지거나 멈춰요',    sub: '재부팅 후에도 반복돼요' },
-];
-
 interface Props {
   isStandalone: boolean;
+}
+
+function inferGuideContextFromText(text: string): GuideContext {
+  const normalized = text.toLowerCase();
+  if (/(bios|uefi|boot|부트|부팅순서|부팅 순서|bootloader|boot loader|secure boot|usb|설치|포맷|재설치)/i.test(normalized)) {
+    return 'BIOS_BOOT';
+  }
+  if (/(블루스크린|bsod|stop code|중지 코드|자동 재부팅)/i.test(normalized)) {
+    return 'BLUE_SCREEN';
+  }
+  if (/(인터넷|wifi|wi-fi|와이파이|랜선|dns|공유기|네트워크)/i.test(normalized)) {
+    return 'NETWORK_ISSUE';
+  }
+  if (/(느려|멈춤|버벅|발열|팬|소음|cpu|메모리|디스크)/i.test(normalized)) {
+    return 'SLOW_PC';
+  }
+  if (/(실행|앱|프로그램|오류 창|설치 실패|무반응)/i.test(normalized)) {
+    return 'APP_NOT_OPENING';
+  }
+  if (/(전원|안 켜|안켜|검은 화면|화면 안|로고에서|부팅 안)/i.test(normalized)) {
+    return 'NO_BOOT';
+  }
+  return 'GENERAL';
 }
 
 // ── 공유 서브 컴포넌트 ────────────────────────────────────────────────────────
@@ -153,12 +166,20 @@ function TabItem({ icon, label, active = false }: { icon: React.ReactNode; label
 
 export default function PwaPage({ isStandalone }: Props) {
   const [view,        setView]       = useState<PwaView>('onboarding');
-  const [selectedCtx, setSelectedCtx] = useState<string>('bios');
+  const [selectedCtx, setSelectedCtx] = useState<GuideContext | 'beep'>('GENERAL');
+  const [symptomText, setSymptomText] = useState('');
+  const [initialGuideQuestion, setInitialGuideQuestion] = useState('');
   const [biosType,    setBiosType]   = useState<BiosType | null>(null);
 
   // ── 진단 모드 뷰 ──────────────────────────────────────────────────────────
   if (view === 'live-guide') {
-    return <LiveGuideMode isStandalone={isStandalone}/>;
+    return (
+      <LiveGuideMode
+        isStandalone={isStandalone}
+        initialContext={selectedCtx === 'beep' ? 'GENERAL' : selectedCtx}
+        initialQuestion={initialGuideQuestion}
+      />
+    );
   }
 
   if (view === 'audio-capture') {
@@ -238,8 +259,15 @@ export default function PwaPage({ isStandalone }: Props) {
     );
   }
 
-  // ── Screen 03: 상황 선택 ─────────────────────────────────────────────────
+  // ── Screen 03: 증상 입력 ─────────────────────────────────────────────────
   if (view === 'context') {
+    const startFreeformGuide = () => {
+      const trimmed = symptomText.trim();
+      setSelectedCtx(inferGuideContextFromText(trimmed));
+      setInitialGuideQuestion(trimmed);
+      setView('live-guide');
+    };
+
     return (
       <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
         <div style={{ height: 54 }}/>
@@ -262,41 +290,68 @@ export default function PwaPage({ isStandalone }: Props) {
 
         {/* 제목 */}
         <div style={{ padding: '24px 22px 4px' }}>
-          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, letterSpacing: -1.1, lineHeight: 1.25 }}>어떤 상황인가요?</h1>
+          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, letterSpacing: -1.1, lineHeight: 1.25 }}>어떤 문제가 있나요?</h1>
           <p style={{ margin: '8px 0 0', color: C.inkSoft, fontSize: 14.5, letterSpacing: -0.3, fontWeight: 500 }}>
-            가장 가까운 상황을 골라주세요.<br/>
-            잘 모르겠으면 <span style={{ color: C.brand, fontWeight: 700 }}>자동 진단</span>으로 넘어갈 수 있어요.
+            보이는 증상이나 궁금한 점을 편하게 적어주세요.<br/>
+            비워두고 시작하면 화면 단서부터 먼저 볼게요.
           </p>
         </div>
 
-        {/* 선택지 */}
-        <div style={{ padding: '18px 22px 0', display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
-          {CTX_OPTIONS.map(opt => {
-            const on = selectedCtx === opt.id;
-            return (
-              <button key={opt.id} type="button" onClick={() => setSelectedCtx(opt.id)} style={{ padding: 14, borderRadius: 18, textAlign: 'left', background: on ? C.brandSoft : C.surface, boxShadow: on ? `inset 0 0 0 2px ${C.brand}` : `inset 0 0 0 1px ${C.line}`, display: 'flex', alignItems: 'center', gap: 14, border: 'none', cursor: 'pointer', width: '100%', fontFamily: 'Pretendard, system-ui' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 13, background: on ? C.brand : C.brandSoft, color: on ? '#fff' : C.brand, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{opt.icon}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15.5, fontWeight: 700, letterSpacing: -0.4, color: C.ink }}>{opt.title}</div>
-                  <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 2, letterSpacing: -0.2 }}>{opt.sub}</div>
-                </div>
-                <div style={{ width: 22, height: 22, borderRadius: '50%', background: on ? C.brand : 'transparent', boxShadow: on ? 'none' : `inset 0 0 0 1.5px ${C.line}`, display: 'grid', placeItems: 'center', color: '#fff', flexShrink: 0 }}>
-                  {on && <Check size={13}/>}
-                </div>
-              </button>
-            );
-          })}
+        {/* 자유 입력 */}
+        <div style={{ padding: '18px 22px 0', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+          <textarea
+            value={symptomText}
+            onChange={e => setSymptomText(e.target.value)}
+            placeholder={'예: 전원은 들어오는데 모니터에 아무것도 안 떠요\n예: BIOS 화면에서 USB 부팅을 어디서 고르는지 모르겠어요'}
+            maxLength={220}
+            rows={6}
+            style={{
+              width: '100%',
+              minHeight: 150,
+              resize: 'vertical',
+              border: 'none',
+              borderRadius: 20,
+              padding: 16,
+              background: C.surface,
+              boxShadow: `inset 0 0 0 1.5px ${C.line}`,
+              color: C.ink,
+              fontFamily: 'Pretendard, system-ui',
+              fontSize: 15.5,
+              fontWeight: 600,
+              lineHeight: 1.55,
+              letterSpacing: -0.3,
+              outline: 'none',
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <span style={{ color: C.inkSoft, fontSize: 12.5, fontWeight: 600 }}>
+              사진처럼 화면을 비추면 입력한 내용과 같이 분석해요.
+            </span>
+            <span style={{ color: C.inkFaint, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              {symptomText.length}/220
+            </span>
+          </div>
+
+          <div style={{ marginTop: 8, padding: 14, borderRadius: 18, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: C.brand, fontSize: 13, fontWeight: 800 }}>
+              <Sparkles size={16}/>
+              바로 말하기 어려우면
+            </div>
+            <p style={{ margin: '8px 0 0', color: C.inkSoft, fontSize: 13.5, lineHeight: 1.5, letterSpacing: -0.2 }}>
+              그냥 시작해도 됩니다. 카메라 화면에서 오류 문구, BIOS 메뉴, 불빛 같은 단서를 먼저 보고 물어볼게요.
+            </p>
+          </div>
         </div>
 
         {/* 하단 CTA */}
         <div style={{ padding: `12px 22px max(env(safe-area-inset-bottom,0px),30px)`, background: C.bg, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <button type="button" onClick={() => setView('live-guide')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
-              ✨ 잘 모르겠어요, 자동 진단할게요
+            <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); setView('live-guide'); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
+              ✨ 입력 없이 화면부터 보기
             </button>
           </div>
-          <PillBtn full onClick={() => selectedCtx === 'beep' ? setView('audio-capture') : setView('live-guide')}>
-            다음 단계로 <ArrowRight size={18}/>
+          <PillBtn full onClick={startFreeformGuide}>
+            카메라로 분석 시작 <ArrowRight size={18}/>
           </PillBtn>
         </div>
       </div>
@@ -330,7 +385,7 @@ export default function PwaPage({ isStandalone }: Props) {
 
       {/* 히어로 CTA 카드 */}
       <div style={{ padding: '12px 22px 0' }}>
-        <button type="button" onClick={() => setView('context')} style={{ width: '100%', borderRadius: 24, padding: 18, position: 'relative', overflow: 'hidden', background: `linear-gradient(140deg, ${C.brand} 0%, ${C.brandDeep} 100%)`, color: '#fff', boxShadow: `0 16px 30px -16px ${C.brand}aa`, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Pretendard, system-ui' }}>
+        <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); setView('context'); }} style={{ width: '100%', borderRadius: 24, padding: 18, position: 'relative', overflow: 'hidden', background: `linear-gradient(140deg, ${C.brand} 0%, ${C.brandDeep} 100%)`, color: '#fff', boxShadow: `0 16px 30px -16px ${C.brand}aa`, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Pretendard, system-ui' }}>
           {/* 데코 링 */}
           <div style={{ position: 'absolute', right: -50, top: -50, width: 180, height: 180, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.22)', pointerEvents: 'none' }}/>
           <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.16)', pointerEvents: 'none' }}/>
@@ -358,10 +413,10 @@ export default function PwaPage({ isStandalone }: Props) {
           <span style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>전체보기</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <QuickCard icon={<PowerOff size={20}/>} label="부팅이 안돼요"    tag="POWER"   onClick={() => setView('live-guide')}/>
-          <QuickCard icon={<Cpu size={20}/>}      label="BIOS 화면이에요"  tag="BIOS"    onClick={() => setView('live-guide')}/>
+          <QuickCard icon={<PowerOff size={20}/>} label="부팅이 안돼요"    tag="POWER"   onClick={() => { setInitialGuideQuestion(''); setSelectedCtx('NO_BOOT'); setView('live-guide'); }}/>
+          <QuickCard icon={<Cpu size={20}/>}      label="BIOS 화면이에요"  tag="BIOS"    onClick={() => { setInitialGuideQuestion(''); setSelectedCtx('BIOS_BOOT'); setView('live-guide'); }}/>
           <QuickCard icon={<Volume2 size={20}/>}  label="비프음이 나요"    tag="AUDIO"   onClick={() => setView('audio-capture')}/>
-          <QuickCard icon={<Monitor size={20}/>}  label="화면이 깨져요"    tag="DISPLAY" onClick={() => setView('live-guide')}/>
+          <QuickCard icon={<Monitor size={20}/>}  label="화면이 깨져요"    tag="DISPLAY" onClick={() => { setInitialGuideQuestion(''); setSelectedCtx('SLOW_PC'); setView('live-guide'); }}/>
         </div>
       </div>
 

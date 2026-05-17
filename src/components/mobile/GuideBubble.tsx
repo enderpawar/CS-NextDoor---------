@@ -1,4 +1,5 @@
 import '../../styles/mobile.css';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Eye, Loader2, ListChecks, MessageCircleQuestion } from 'lucide-react';
 import type { CaptureState } from '../../hooks/useGeminiLiveGuide';
 
@@ -8,6 +9,7 @@ interface Props {
   captureState: CaptureState;
   elapsed:      number;
   staleGuide:   boolean;
+  compact?:      boolean;
 }
 
 export default function GuideBubble({
@@ -16,8 +18,17 @@ export default function GuideBubble({
   captureState,
   elapsed,
   staleGuide,
+  compact = false,
 }: Props) {
+  const [expanded, setExpanded] = useState(!compact);
   const sections = splitGuideText(text);
+  const animationKey = isStreaming ? 'streaming' : text;
+  const primaryLine = sections.actions[0] ?? sections.observation ?? '현재 화면을 분석해 다음 단계를 안내할게요.';
+  const shouldCollapse = compact && !isStreaming && !expanded;
+
+  useEffect(() => {
+    setExpanded(!compact);
+  }, [compact, text]);
 
   return (
     <div className="nd-guide-stack">
@@ -46,19 +57,26 @@ export default function GuideBubble({
       )}
 
       {/* 안내 버블 */}
-      <div className={`nd-guide-bubble${isStreaming ? ' streaming' : ''}`}>
+      <div key={animationKey} className={`nd-guide-bubble${isStreaming ? ' streaming' : ''}${shouldCollapse ? ' compact' : ''}`}>
         <div className="nd-guide-bubble-head">
           <div>
             <div className="nd-guide-bubble-label">AI 안내</div>
             <div className="nd-guide-bubble-title">
-              {isStreaming ? '화면을 분석하고 있어요' : '다음 순서대로 확인하세요'}
+              {isStreaming ? '화면을 분석하고 있어요' : primaryLine}
             </div>
           </div>
-          <span className={`nd-guide-status-pill${isStreaming ? ' active' : ''}`}>
-            {isStreaming ? '분석 중' : '대기 중'}
-          </span>
+          {shouldCollapse ? (
+            <button type="button" className="nd-guide-expand-btn" onClick={() => setExpanded(true)}>
+              자세히
+            </button>
+          ) : (
+            <span className={`nd-guide-status-pill${isStreaming ? ' active' : ''}`}>
+              {isStreaming ? '분석 중' : '대기 중'}
+            </span>
+          )}
         </div>
 
+        {!shouldCollapse && (
         <div className="nd-guide-sections">
           {sections.observation && (
             <section className="nd-guide-section">
@@ -100,6 +118,7 @@ export default function GuideBubble({
             </section>
           )}
         </div>
+        )}
 
         {isStreaming && <span className="nd-guide-cursor" aria-hidden="true" />}
       </div>

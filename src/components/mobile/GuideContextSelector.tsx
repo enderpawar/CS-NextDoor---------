@@ -10,6 +10,12 @@ interface ContextOption {
 
 const OPTIONS: ContextOption[] = [
   {
+    context: 'GENERAL',
+    icon:    '✨',
+    title:   '자동 진단',
+    desc:    '잘 모르겠으면 화면 단서부터 확인',
+  },
+  {
     context: 'NO_BOOT',
     icon:    '⏻',
     title:   '부팅 안 됨',

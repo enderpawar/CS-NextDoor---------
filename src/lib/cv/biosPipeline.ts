@@ -16,6 +16,7 @@
 
 import Tesseract from 'tesseract.js';
 import type { BiosType } from '../../types';
+import type { GuideOcrRegion } from '../../types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const cv: any;
@@ -42,6 +43,7 @@ export function detectBiosVendor(text: string): BiosType | null {
 export interface BiosPipelineResult {
   rectified:   boolean;    // Homography 정면화 성공 여부
   ocrText:     string;     // Tesseract 전체 텍스트
+  ocrRegions:  GuideOcrRegion[]; // OCR line/word 후보 영역 (원본 프레임 픽셀 공간)
   menuItems:   string[];   // 정리된 메뉴 항목 목록
   detectedVendor: BiosType | null; // OCR 텍스트에서 추론한 BIOS 제조사
   confidence:  number;     // OCR 신뢰도 0.0~1.0
@@ -189,6 +191,7 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const clahe    = new cv.CLAHE(CLAHE_CLIP, new cv.Size(CLAHE_GRID, CLAHE_GRID));
   let   warped: any = null;
+  let   homographyInv: any = null;
 
   try {
     // ── Step 1: 그레이스케일 ────────────────────────────────────────────────
@@ -210,6 +213,8 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
         if (H && !H.empty()) {
           warped = new cv.Mat();
           cv.warpPerspective(gray, warped, H, new cv.Size(rgba.width, rgba.height));
+          homographyInv = new cv.Mat();
+          cv.invert(H, homographyInv);
           rectified = true;
         }
       } finally {
@@ -252,12 +257,14 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
 
     const ocrText  = data.text.trim();
     const confidence = (data.confidence ?? 0) / 100;
+    const ocrRegions = extractOcrRegions(data, rgba.width, rgba.height, homographyInv);
     const menuItems = extractMenuItems(ocrText);
     const detectedVendor = detectBiosVendor(ocrText);
 
     return {
       rectified,
       ocrText,
+      ocrRegions,
       menuItems,
       detectedVendor,
       confidence,
@@ -266,6 +273,7 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
   } finally {
     [src, gray, edges, lines, enhanced, binary, labels, stats, centroids].forEach(m => m.delete());
     warped?.delete();
+    homographyInv?.delete();
     clahe.delete();
   }
 }
@@ -527,6 +535,112 @@ function mapPointByHomography(x: number, y: number, hInv: any): number[] {
     (h00 * x + h01 * y + h02) / denom,
     (h10 * x + h11 * y + h12) / denom,
   ];
+}
+
+function extractOcrRegions(
+  // Tesseract.js Page 타입은 런타임 버전별로 optional 필드가 있어 any로 좁게 처리.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  page: any,
+  width: number,
+  height: number,
+  homographyInv: any | null,
+): GuideOcrRegion[] {
+  const regions: GuideOcrRegion[] = [];
+  let lineId = 0;
+  let wordId = 0;
+
+  for (const block of page.blocks ?? []) {
+    for (const paragraph of block.paragraphs ?? []) {
+      for (const line of paragraph.lines ?? []) {
+        const lineText = normalizeOcrText(line.text);
+        if (lineText.length >= 2) {
+          const region = makeOcrRegion(
+            `ocr-line-${lineId++}`,
+            lineText,
+            line.confidence ?? 0,
+            line.bbox,
+            width,
+            height,
+            homographyInv,
+          );
+          if (region) regions.push(region);
+        }
+
+        for (const word of line.words ?? []) {
+          const wordText = normalizeOcrText(word.text);
+          if (wordText.length < 2) continue;
+          const region = makeOcrRegion(
+            `ocr-word-${wordId++}`,
+            wordText,
+            word.confidence ?? 0,
+            word.bbox,
+            width,
+            height,
+            homographyInv,
+          );
+          if (region) regions.push(region);
+        }
+      }
+    }
+  }
+
+  return regions
+    .filter(region => region.confidence >= 0.35 || region.text.length >= 4)
+    .sort((a, b) => {
+      const ay = a.bbox.y;
+      const by = b.bbox.y;
+      if (Math.abs(ay - by) > 12) return ay - by;
+      return a.bbox.x - b.bbox.x;
+    })
+    .slice(0, 80);
+}
+
+function makeOcrRegion(
+  id: string,
+  text: string,
+  confidence: number,
+  bbox: { x0: number; y0: number; x1: number; y1: number } | null | undefined,
+  width: number,
+  height: number,
+  homographyInv: any | null,
+): GuideOcrRegion | null {
+  if (!bbox) return null;
+  const rectPoints: number[][] = [
+    [bbox.x0, bbox.y0],
+    [bbox.x1, bbox.y0],
+    [bbox.x1, bbox.y1],
+    [bbox.x0, bbox.y1],
+  ];
+  const points = homographyInv
+    ? rectPoints.map(point => mapPointByHomography(point[0] ?? 0, point[1] ?? 0, homographyInv))
+    : rectPoints;
+
+  const xs = points.map(point => point[0] ?? 0);
+  const ys = points.map(point => point[1] ?? 0);
+  const x0 = clamp(Math.min(...xs), 0, width);
+  const y0 = clamp(Math.min(...ys), 0, height);
+  const x1 = clamp(Math.max(...xs), 0, width);
+  const y1 = clamp(Math.max(...ys), 0, height);
+  const w = x1 - x0;
+  const h = y1 - y0;
+
+  if (w < 3 || h < 3) return null;
+
+  return {
+    id,
+    text,
+    confidence: Math.max(0, Math.min(1, confidence / 100)),
+    bbox: { x: x0, y: y0, w, h },
+    points,
+  };
+}
+
+function normalizeOcrText(text: string | null | undefined): string {
+  return (text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 /** OCR 텍스트 줄 분리 → 2~60자 항목만 추출 */

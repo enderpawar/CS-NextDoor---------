@@ -91,13 +91,20 @@ public class GeminiService {
     // ── Private helpers ────────────────────────────────────────────────────────
 
     private String callGemini(List<Map<String, Object>> parts) {
+        return callGemini(parts, null);
+    }
+
+    private String callGemini(List<Map<String, Object>> parts, Map<String, Object> generationConfig) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new DiagnosisException("Gemini API 키가 설정되지 않았어요. 백엔드 실행 환경에 GEMINI_API_KEY를 넣어주세요.");
         }
 
-        Map<String, Object> requestBody = Map.of(
-            "contents", List.of(Map.of("parts", parts))
-        );
+        Map<String, Object> requestBody = generationConfig == null
+            ? Map.of("contents", List.of(Map.of("parts", parts)))
+            : Map.of(
+                "contents", List.of(Map.of("parts", parts)),
+                "generationConfig", generationConfig
+            );
         String url = GEMINI_BASE_URL + model + ":generateContent?key=" + apiKey;
 
         try {
@@ -261,7 +268,10 @@ public class GeminiService {
                 "data", frameBase64
             )));
         }
-        return callGemini(parts);
+        return callGemini(parts, Map.of(
+            "responseMimeType", "application/json",
+            "temperature", 0.2
+        ));
     }
 
     private String buildHypothesisPrompt(String symptom, String systemSnapshotJson) {

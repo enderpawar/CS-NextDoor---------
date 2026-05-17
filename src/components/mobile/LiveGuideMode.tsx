@@ -28,7 +28,7 @@ import ShootingGuide                         from './ShootingGuide';
 import CvInsightPanel                        from './CvInsightPanel';
 import BiosTypeSelector                      from './BiosTypeSelector';
 import AudioCapture                          from './AudioCapture';
-import type { GuideContext, BiosType }       from '../../types';
+import type { GuideContext, BiosType, GuideOcrRegion } from '../../types';
 import { compareHist }                       from '../../lib/cv/changeDetection';
 import {
   detectBiosVendor,
@@ -39,6 +39,7 @@ import type { BiosTextRegion } from '../../lib/cv/biosPipeline';
 
 // 세션 시작 즉시 표시할 컨텍스트별 정적 안내 (Gemini 응답 전 공백 방지)
 const STATIC_FIRST_GUIDE: Record<GuideContext, string> = {
+  GENERAL:         'PC 화면을 비춰주세요. 화면 단서를 먼저 보고 어떤 문제인지 분류한 뒤 단계별로 안내할게요.',
   NO_BOOT:         'PC 본체 전원 LED, 모니터 화면, 제조사 로고가 보이는지 차례로 확인할게요.',
   SLOW_PC:         '작업 관리자나 느려지는 화면을 비춰주세요. CPU, 메모리, 디스크 사용률 단서를 같이 볼게요.',
   APP_NOT_OPENING: '실행되지 않는 프로그램의 오류 창이나 멈춘 화면을 비춰주세요.',
@@ -48,6 +49,7 @@ const STATIC_FIRST_GUIDE: Record<GuideContext, string> = {
 };
 
 const CONTEXT_LABELS: Record<GuideContext, string> = {
+  GENERAL:         '자동 진단',
   NO_BOOT:         '부팅 안 됨',
   SLOW_PC:         '느려짐·멈춤',
   APP_NOT_OPENING: '실행 안 됨',
@@ -57,9 +59,18 @@ const CONTEXT_LABELS: Record<GuideContext, string> = {
 };
 
 type PageState = 'camera' | 'done';
+type ActionResult = 'none' | 'tried' | 'unresolved';
+
+interface FrozenFrame {
+  dataUrl: string;
+  width: number;
+  height: number;
+}
 
 interface Props {
   isStandalone?: boolean;
+  initialContext?: GuideContext;
+  initialQuestion?: string;
 }
 
 /** cvSummary 문자열에서 bios 메트릭 파싱 */
@@ -71,14 +82,15 @@ function parseBiosFromSummary(cvSummary: string) {
   };
 }
 
-export default function LiveGuideMode({ isStandalone = false }: Props) {
+export default function LiveGuideMode({ isStandalone = false, initialContext = 'GENERAL', initialQuestion = '' }: Props) {
   const [page,              setPage]             = useState<PageState>('camera');
-  const [context,           setContext]          = useState<GuideContext>('NO_BOOT');
+  const [context,           setContext]          = useState<GuideContext>(initialContext);
   const [showShootingGuide, setShowShootingGuide] = useState(true);
   const [contextSheetOpen,  setContextSheetOpen] = useState(false);
   const [qualityText,       setQualityText]      = useState('');
   const [streamError,       setStreamError]      = useState('');
   const [resolutionStep,    setResolutionStep]   = useState<'idle' | 'action-done' | 'hidden'>('hidden');
+  const [questionDraft,     setQuestionDraft]    = useState(initialQuestion);
 
   // CV Insight 패널 상태 (Task 3)
   const [cvPanelOpen,   setCvPanelOpen]   = useState(false);
@@ -97,7 +109,9 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
   // Task 7 — AR 오버레이 (모듈 1 Hough 검출 4 모서리)
   const [biosCorners,   setBiosCorners]   = useState<number[][] | null>(null);
   const [biosTextRegions, setBiosTextRegions] = useState<BiosTextRegion[]>([]);
+  const [biosOcrRegions, setBiosOcrRegions] = useState<GuideOcrRegion[]>([]);
   const [biosVideoSize, setBiosVideoSize] = useState<{ w: number; h: number } | null>(null);
+  const [frozenFrame, setFrozenFrame] = useState<FrozenFrame | null>(null);
 
   const videoRef              = useRef<HTMLVideoElement>(null);
   const canvasRef             = useRef<HTMLCanvasElement>(null);
@@ -106,10 +120,28 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
   const cameraStartingRef     = useRef(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const capturedHistRef = useRef<any>(null);
-  const pendingGalleryFrameRef = useRef<{ base64: string; cvSummary: string } | null>(null);
+  const initialQuestionRef = useRef(initialQuestion.trim());
+  const taskGoalRef = useRef(initialQuestion.trim());
+  const lastActionResultRef = useRef<ActionResult>('none');
+  const pendingGalleryFrameRef = useRef<{
+    base64: string;
+    cvSummary: string;
+    ocrRegions: GuideOcrRegion[];
+    userQuestion?: string;
+    taskGoal?: string;
+  } | null>(null);
 
   const { cvReady } = useOpenCV();
   const guide = useGeminiLiveGuide();
+
+  const clearFrozenGuideState = useCallback(() => {
+    setFrozenFrame(null);
+    setBiosCorners(null);
+    setBiosTextRegions([]);
+    setBiosOcrRegions([]);
+    setBiosVideoSize(null);
+    guide.setArTarget(null);
+  }, [guide.setArTarget]);
 
   // ── 프레임 변화 감지 후 전송 ────────────────────────────────────────────────
   const handleFrameChange = useCallback(
@@ -126,7 +158,7 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
       capturedHistRef.current?.delete();
       capturedHistRef.current = histSnapshot?.clone?.() ?? null;
       try {
-        await guide.sendFrame(base64, histSnapshot, cvSummary);
+        await guide.sendFrame(base64, histSnapshot, cvSummary, undefined, undefined, taskGoalRef.current || undefined);
       } catch {
         // sendFrame 내부에서 이미 처리됨
       }
@@ -197,10 +229,22 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
       const ctx = offCanvas.getContext('2d');
       if (!ctx) return;
       ctx.drawImage(img, 0, 0);
+      setFrozenFrame({
+        dataUrl: offCanvas.toDataURL('image/jpeg', 0.85),
+        width: offCanvas.width,
+        height: offCanvas.height,
+      });
 
       const rgba = ctx.getImageData(0, 0, offCanvas.width, offCanvas.height);
       let base64 = offCanvas.toDataURL('image/jpeg', 0.85).split(',')[1] ?? '';
-      let cvSummary = 'galleryUpload=true';
+      const initialQuestionForFrame = !guide.streamText ? initialQuestionRef.current : '';
+      if (initialQuestionForFrame && !taskGoalRef.current) taskGoalRef.current = initialQuestionForFrame;
+      let cvSummary = [
+        'galleryUpload=true',
+        initialQuestionForFrame ? 'userQuestion=true' : 'userQuestion=false',
+        initialQuestionForFrame ? 'guidePhase=question-initial' : 'guidePhase=initial',
+        `previousActionResult=${lastActionResultRef.current}`,
+      ].join(', ');
 
       // 모듈 1: BIOS 전처리 (CLAHE 강화 + Hough 모서리)
       if (cvReady) {
@@ -229,12 +273,46 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
         }
       }
 
-      pendingGalleryFrameRef.current = { base64, cvSummary };
+      let galleryOcrRegions: GuideOcrRegion[] = [];
+      if (cvReady) {
+        try {
+          const ocrResult = await runBiosPipeline(rgba);
+          galleryOcrRegions = ocrResult.ocrRegions;
+          setBiosOcrRegions(galleryOcrRegions);
+          if (ocrResult.detectedVendor) applyDetectedVendor(ocrResult.detectedVendor);
+          cvSummary = [
+            cvSummary,
+            `ocrRegions=${galleryOcrRegions.length}`,
+            `ocrConfidence=${ocrResult.confidence.toFixed(2)}`,
+          ].join(', ');
+        } catch {
+          setBiosOcrRegions([]);
+        }
+      }
+
+      pendingGalleryFrameRef.current = {
+        base64,
+        cvSummary,
+        ocrRegions: galleryOcrRegions,
+        userQuestion: initialQuestionForFrame || undefined,
+        taskGoal: taskGoalRef.current || initialQuestionForFrame || undefined,
+      };
 
       if (guide.session?.status === 'ACTIVE') {
         // 이미 세션 활성 → 즉시 전송
         pendingGalleryFrameRef.current = null;
-        try { await guide.sendFrame(base64, null, cvSummary); } catch { /* 내부 처리 */ }
+        try {
+          await guide.sendFrame(
+            base64,
+            null,
+            cvSummary,
+            galleryOcrRegions,
+            initialQuestionForFrame || undefined,
+            taskGoalRef.current || initialQuestionForFrame || undefined,
+          );
+          if (initialQuestionForFrame) initialQuestionRef.current = '';
+          lastActionResultRef.current = 'none';
+        } catch { /* 내부 처리 */ }
       } else {
         // 세션 없음 → ShootingGuide 닫고 자동 시작 (완료 후 pendingGalleryFrameRef useEffect가 전송)
         setShowShootingGuide(false);
@@ -247,16 +325,46 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
         }
       }
     },
-    [cvReady, guide, context, handleBiosOverlay],
+    [cvReady, guide, context, handleBiosOverlay, applyDetectedVendor],
   );
 
   // ── 수동 프레임 캡처 ("다음 단계" 버튼) ──────────────────────────────────
-  const handleManualCapture = useCallback(async () => {
+  const handleManualCapture = useCallback(async (userQuestion?: string, actionResultOverride?: ActionResult) => {
+    const shouldUseInitialQuestion = !userQuestion?.trim() && !guide.streamText && !!initialQuestionRef.current;
+    const question = userQuestion?.trim() || (shouldUseInitialQuestion ? initialQuestionRef.current : '');
+    const actionResult = actionResultOverride ?? lastActionResultRef.current;
+    const taskGoal = taskGoalRef.current || question;
+    if (taskGoal && !taskGoalRef.current) taskGoalRef.current = taskGoal;
     if (guide.isSendingRef.current || guide.session?.status !== 'ACTIVE') return;
-    if (guide.streamText && resolutionStep !== 'hidden') {
+    if (guide.streamText && resolutionStep === 'idle' && !question) {
       setQualityText('먼저 안내한 조치를 해본 뒤 결과를 선택해주세요.');
       return;
     }
+
+    if (question && frozenFrame) {
+      const base64 = frozenFrame.dataUrl.split(',')[1] ?? '';
+      if (!base64) {
+        setQualityText('정지 화면을 읽지 못했어요. 현재 화면을 다시 분석해주세요.');
+        return;
+      }
+      const cvSummary = [
+        'userQuestion=true',
+        'frozenFrame=true',
+        guide.streamText ? 'guidePhase=question-followup' : 'guidePhase=question-initial',
+        `previousActionResult=${actionResult}`,
+        `ocrRegions=${biosOcrRegions.length}`,
+      ].join(', ');
+      setQualityText('');
+      try {
+        await guide.sendFrame(base64, null, cvSummary, biosOcrRegions, question, taskGoal || undefined);
+        if (shouldUseInitialQuestion) initialQuestionRef.current = '';
+        lastActionResultRef.current = 'none';
+      } catch {
+        // sendFrame 내부에서 처리됨
+      }
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -269,12 +377,21 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     if (videoReady) ctx.drawImage(video!, 0, 0);
     else            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    setFrozenFrame({
+      dataUrl: canvas.toDataURL('image/jpeg', 0.85),
+      width: canvas.width,
+      height: canvas.height,
+    });
+
     const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
     let base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
     let cvSummary = [
       'manualCapture=true',
-      guide.streamText ? 'guidePhase=followup' : 'guidePhase=initial',
-      guide.streamText ? 'previousActionResult=unresolved' : 'previousActionResult=none',
+      question ? 'userQuestion=true' : 'userQuestion=false',
+      question
+        ? (guide.streamText ? 'guidePhase=question-followup' : 'guidePhase=question-initial')
+        : (guide.streamText ? 'guidePhase=followup' : 'guidePhase=initial'),
+      `previousActionResult=${actionResult}`,
     ].join(', ');
 
     try {
@@ -301,23 +418,39 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
       cvSummary = `${cvSummary}, biosPreprocess=failed`;
     }
 
-    if (cvReady && biosTypeSource !== 'manual' && !vendorDetectedRef.current) {
+    let ocrRegions: GuideOcrRegion[] = [];
+    if (cvReady) {
       const ocrFrame = new ImageData(
         new Uint8ClampedArray(rgba.data),
         rgba.width,
         rgba.height,
       );
-      void runBiosPipeline(ocrFrame)
-        .then(result => {
-          if (result.detectedVendor) applyDetectedVendor(result.detectedVendor);
-        })
-        .catch(() => {
-          // OCR 실패는 수동 캡처 전송을 막지 않음
-        });
+      try {
+        const ocrResult = await runBiosPipeline(ocrFrame);
+        ocrRegions = ocrResult.ocrRegions;
+        setBiosOcrRegions(ocrRegions);
+        cvSummary = [
+          cvSummary,
+          `ocrRegions=${ocrRegions.length}`,
+          `ocrConfidence=${ocrResult.confidence.toFixed(2)}`,
+        ].join(', ');
+        if (
+          ocrResult.detectedVendor
+          && biosTypeSource !== 'manual'
+          && !vendorDetectedRef.current
+        ) {
+          applyDetectedVendor(ocrResult.detectedVendor);
+        }
+      } catch {
+        setBiosOcrRegions([]);
+      }
     }
 
     try {
-      await guide.sendFrame(base64, null, cvSummary);
+      setQualityText('');
+      await guide.sendFrame(base64, null, cvSummary, ocrRegions, question || undefined, taskGoal || undefined);
+      if (shouldUseInitialQuestion) initialQuestionRef.current = '';
+      lastActionResultRef.current = 'none';
     } catch {
       // sendFrame 내부에서 처리됨
     }
@@ -329,7 +462,17 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     biosTypeSource,
     applyDetectedVendor,
     resolutionStep,
+    frozenFrame,
+    biosOcrRegions,
   ]);
+
+  const handleQuestionSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const question = questionDraft.trim();
+    if (!question) return;
+    setQuestionDraft('');
+    await handleManualCapture(question);
+  }, [questionDraft, handleManualCapture]);
 
   const { currentHistRef } = useLiveFrameCapture({
     canvasRef,
@@ -357,6 +500,11 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
       setResolutionStep('hidden');
     }
   }, [guide.isStreaming]);
+
+  useEffect(() => {
+    if (guide.isStreaming || !guide.streamText.startsWith('오류가 발생했어요')) return;
+    clearFrozenGuideState();
+  }, [guide.isStreaming, guide.streamText, clearFrozenGuideState]);
 
   // ── stale guide 감지: isStreaming false 전환 시 ────────────────────────────
   useEffect(() => {
@@ -388,7 +536,15 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     const pending = pendingGalleryFrameRef.current;
     if (!pending) return;
     pendingGalleryFrameRef.current = null;
-    guide.sendFrame(pending.base64, null, pending.cvSummary).catch(() => {});
+    guide
+      .sendFrame(pending.base64, null, pending.cvSummary, pending.ocrRegions, pending.userQuestion, pending.taskGoal)
+      .then(() => {
+        if (pending.userQuestion && initialQuestionRef.current === pending.userQuestion) {
+          initialQuestionRef.current = '';
+        }
+        lastActionResultRef.current = 'none';
+      })
+      .catch(() => {});
   }, [guide.session?.status, guide]);
 
   // 컨텍스트 변경 시 vendor 감지 + AR 오버레이 상태 초기화
@@ -397,10 +553,8 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     setAutoVendorChip(null);
     setBiosType(null);
     setBiosTypeSource(null);
-    setBiosCorners(null);
-    setBiosTextRegions([]);
-    setBiosVideoSize(null);
-  }, [context]);
+    clearFrozenGuideState();
+  }, [context, clearFrozenGuideState]);
 
   // ── 카메라 시작/종료 ─────────────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
@@ -454,8 +608,9 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
       }
       stopCamera();
       setPage('done');
+      clearFrozenGuideState();
     }
-  }, [guide.session?.status, stopCamera]);
+  }, [guide.session?.status, stopCamera, clearFrozenGuideState]);
 
   // ── ShootingGuide 오버레이 닫힘 → 가이드 세션 시작 ──────────────────────
   const handleGuideStart = useCallback(async () => {
@@ -472,6 +627,10 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
   const handleContextChange = useCallback((ctx: GuideContext) => {
     setContext(ctx);
     setContextSheetOpen(false);
+    setQuestionDraft('');
+    clearFrozenGuideState();
+    taskGoalRef.current = '';
+    lastActionResultRef.current = 'none';
     if (guide.session) {
       isSwitchingContextRef.current = true;
       guide.endSession();
@@ -486,33 +645,51 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     setPage('done');
     setQualityText('');
     setStreamError('');
+    setQuestionDraft('');
+    clearFrozenGuideState();
+    lastActionResultRef.current = 'none';
     capturedHistRef.current?.delete();
     capturedHistRef.current = null;
-  }, [guide, stopCamera]);
+  }, [guide, stopCamera, clearFrozenGuideState]);
 
   const handleResolvedByUser = useCallback(() => {
     guide.endSession();
     stopCamera();
     setPage('done');
     setResolutionStep('hidden');
-  }, [guide, stopCamera]);
+    setQuestionDraft('');
+    clearFrozenGuideState();
+    lastActionResultRef.current = 'none';
+  }, [guide, stopCamera, clearFrozenGuideState]);
 
   const handleStillUnresolved = useCallback(() => {
-    setResolutionStep('hidden');
-    setQualityText('현재 화면을 비춘 상태에서 다음 단계를 누르면 이어서 안내할게요.');
-  }, []);
+    lastActionResultRef.current = 'unresolved';
+    setQualityText('같은 화면 기준으로 다음 대체 단계를 다시 확인할게요.');
+    void handleManualCapture('아직 해결되지 않았어요. 같은 화면에서 다음으로 확인할 단계를 알려주세요.', 'unresolved');
+  }, [handleManualCapture]);
+
+  const handleActionTried = useCallback(() => {
+    lastActionResultRef.current = 'tried';
+    setResolutionStep('action-done');
+    setQualityText('이제 바뀐 실제 화면을 비춘 뒤 다음 화면 분석을 눌러주세요.');
+    clearFrozenGuideState();
+  }, [clearFrozenGuideState]);
 
   // ── 재시작 (완료 화면 → 카메라 화면) ──────────────────────────────────────
   const handleRestart = useCallback(() => {
     setPage('camera');
     setShowShootingGuide(true);
-    setContext('NO_BOOT');
+    setContext(initialContext);
     setQualityText('');
     setStreamError('');
+    setQuestionDraft('');
+    clearFrozenGuideState();
+    taskGoalRef.current = initialQuestion.trim();
+    lastActionResultRef.current = 'none';
     capturedHistRef.current?.delete();
     capturedHistRef.current = null;
     // startCamera는 page='camera' 렌더 후 아래 useEffect가 처리
-  }, []);
+  }, [initialContext, initialQuestion, clearFrozenGuideState]);
 
   // page='camera'로 전환 시 카메라 재시작 (handleRestart 경로)
   useEffect(() => {
@@ -547,7 +724,7 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
                 guide.endSession();
                 setPage('camera');
                 setContextSheetOpen(true);
-                setContext('NO_BOOT');
+                setContext('GENERAL');
               }}
             >
               다른 작업 하기 →
@@ -569,6 +746,17 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
     guide.captureState !== 'idle'
     || guide.session?.status !== 'ACTIVE'
     || isWaitingForActionResult;
+  const resolutionCaptureDisabled =
+    guide.captureState !== 'idle'
+    || guide.session?.status !== 'ACTIVE';
+  const questionSubmitDisabled =
+    guide.captureState !== 'idle'
+    || guide.session?.status !== 'ACTIVE'
+    || !questionDraft.trim();
+  const selectedOcrTarget = guide.arTarget
+    ? biosOcrRegions.find(region => region.id === guide.arTarget?.targetId) ?? null
+    : null;
+  const hasFrozenFrame = !!frozenFrame;
 
   return (
     <div className="nd-live-guide-page nd-live-guide-camera-root">
@@ -614,7 +802,23 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
 
       {/* ── 카메라 뷰 ── */}
       <div className="nd-camera-wrapper">
-        <video ref={videoRef} className="nd-camera-video" autoPlay playsInline muted />
+        <video
+          ref={videoRef}
+          className={`nd-camera-video${hasFrozenFrame ? ' is-frozen-behind' : ''}`}
+          autoPlay
+          playsInline
+          muted
+        />
+        {frozenFrame && (
+          <img
+            className="nd-camera-frozen-frame"
+            src={frozenFrame.dataUrl}
+            width={frozenFrame.width}
+            height={frozenFrame.height}
+            alt=""
+            aria-hidden="true"
+          />
+        )}
         {/* OpenCV 처리용 숨김 canvas */}
         <canvas ref={canvasRef} className="nd-camera-canvas" style={{ display: 'none' }} />
         {streamError && (
@@ -622,17 +826,17 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
         )}
 
         <div
-          className={`nd-ar-guide-frame${biosCorners ? ' detected' : ''}`}
+          className={`nd-ar-guide-frame${biosCorners ? ' detected' : ''}${hasFrozenFrame ? ' frozen' : ''}`}
           aria-hidden="true"
         >
           <span className="nd-ar-guide-label">
-            {biosCorners ? 'SCREEN LOCKED' : 'ALIGN SCREEN'}
+            {hasFrozenFrame ? 'SCREEN LOCKED' : (biosCorners ? 'SCREEN LOCKED' : 'ALIGN SCREEN')}
           </span>
         </div>
 
         {/* Task 7: AR 오버레이 — Hough 모서리 + CC 텍스트 후보를 비디오 위에 SVG로 렌더
             viewBox + preserveAspectRatio="xMidYMid slice" = CSS object-fit:cover와 동일 매핑 */}
-        {biosVideoSize && (biosCorners || biosTextRegions.length > 0) && (
+        {biosVideoSize && (biosCorners || biosTextRegions.length > 0 || selectedOcrTarget) && (
           <svg
             className="nd-ar-overlay"
             viewBox={`0 0 ${biosVideoSize.w} ${biosVideoSize.h}`}
@@ -656,6 +860,29 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
                   <circle key={i} cx={x} cy={y} r={Math.max(6, biosVideoSize.w * 0.008)} className="nd-ar-corner" />
                 ))}
               </>
+            )}
+            {selectedOcrTarget && (
+              <g className="nd-ar-selected-target">
+                <polygon
+                  points={selectedOcrTarget.points.map(point => `${point[0] ?? 0},${point[1] ?? 0}`).join(' ')}
+                  className="nd-ar-target-region"
+                />
+                <rect
+                  x={selectedOcrTarget.bbox.x}
+                  y={Math.max(0, selectedOcrTarget.bbox.y - 30)}
+                  width={Math.max(96, selectedOcrTarget.bbox.w + 24)}
+                  height={24}
+                  rx={6}
+                  className="nd-ar-target-label-bg"
+                />
+                <text
+                  x={selectedOcrTarget.bbox.x + 12}
+                  y={Math.max(18, selectedOcrTarget.bbox.y - 13)}
+                  className="nd-ar-target-label"
+                >
+                  {guide.arTarget?.label ?? '여기를 선택'}
+                </text>
+              </g>
             )}
           </svg>
         )}
@@ -684,24 +911,50 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
             captureState={guide.captureState}
             elapsed={guide.elapsed}
             staleGuide={guide.staleGuide}
+            compact={hasFrozenFrame || !!selectedOcrTarget}
           />
+          {guide.session?.status === 'ACTIVE' && !selectedOcrTarget && (
+            <form className="nd-guide-question-form" onSubmit={handleQuestionSubmit}>
+              <label className="nd-guide-question-label" htmlFor="nd-guide-question-input">
+                질문하기
+              </label>
+              <div className="nd-guide-question-row">
+                <input
+                  id="nd-guide-question-input"
+                  className="nd-guide-question-input"
+                  type="text"
+                  value={questionDraft}
+                  onChange={e => setQuestionDraft(e.target.value)}
+                  placeholder="지금 화면에 대해 물어보세요"
+                  maxLength={160}
+                  disabled={guide.captureState !== 'idle' || guide.session?.status !== 'ACTIVE'}
+                />
+                <button type="submit" className="nd-guide-question-submit" disabled={questionSubmitDisabled}>
+                  질문
+                </button>
+              </div>
+            </form>
+          )}
           {guide.streamText && guide.session?.status === 'ACTIVE' && !guide.isStreaming && resolutionStep !== 'hidden' && (
             <div className="nd-resolution-check" role="group" aria-label="조치 결과 확인">
               {resolutionStep === 'idle' ? (
                 <>
-                  <span>안내한 조치를 해보셨나요?</span>
-                  <button type="button" onClick={() => setResolutionStep('action-done')}>
-                    해봤어요
+                  <span>{selectedOcrTarget ? '표시된 곳을 눌렀나요?' : '안내한 조치를 해보셨나요?'}</span>
+                  <button type="button" onClick={handleActionTried}>
+                    {selectedOcrTarget ? '눌렀어요' : '해봤어요'}
+                  </button>
+                  <button type="button" onClick={handleStillUnresolved}>
+                    {selectedOcrTarget ? '못 찾겠어요' : '아직이에요'}
                   </button>
                 </>
               ) : (
                 <>
-                  <span>증상이 해결되셨나요?</span>
+                  <span>다음 화면을 분석할까요?</span>
+                  <button type="button" onClick={() => handleManualCapture()} disabled={resolutionCaptureDisabled}>
+                    다음 화면 분석
+                  </button>
                   <button type="button" onClick={handleResolvedByUser}>
                     해결됐어요
-                  </button>
-                  <button type="button" onClick={handleStillUnresolved}>
-                    아직이에요
                   </button>
                 </>
               )}
@@ -737,13 +990,13 @@ export default function LiveGuideMode({ isStandalone = false }: Props) {
           <button
             type="button"
             className="nd-action-bar-btn nd-action-bar-primary"
-            onClick={handleManualCapture}
+            onClick={() => handleManualCapture()}
             disabled={nextButtonDisabled}
             aria-label="현재 화면 분석 요청"
           >
             {guide.captureState !== 'idle'
               ? <span className="nd-action-bar-analyzing">분석 중…</span>
-              : <><span className="nd-action-bar-icon">✓</span><span className="nd-action-bar-label">{guide.streamText ? '이어가기' : '다음 단계'}</span></>
+              : <><span className="nd-action-bar-icon">✓</span><span className="nd-action-bar-label">{guide.streamText ? '다음 화면 분석' : '현재 화면 분석'}</span></>
             }
           </button>
 
