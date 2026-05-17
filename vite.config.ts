@@ -29,6 +29,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 3000,
     strictPort: true,
+    allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
   },
   define: {
     // 런타임 모드 구분용 환경변수

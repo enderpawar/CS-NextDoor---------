@@ -10,34 +10,40 @@ interface ContextOption {
 
 const OPTIONS: ContextOption[] = [
   {
-    context: 'BIOS_ENTRY',
-    icon:    '⌨️',
-    title:   'BIOS 진입',
-    desc:    'Del / F2 키로 BIOS 설정 화면 열기',
+    context: 'NO_BOOT',
+    icon:    '⏻',
+    title:   '부팅 안 됨',
+    desc:    '전원·검은 화면·로고 멈춤 확인',
   },
   {
-    context: 'BOOT_MENU',
-    icon:    '💾',
-    title:   '부팅 메뉴',
-    desc:    'USB·SSD 부팅 순서 변경',
+    context: 'SLOW_PC',
+    icon:    '↯',
+    title:   '느려짐·멈춤',
+    desc:    '성능 저하·발열·팬 소음 진단',
   },
   {
-    context: 'WINDOWS_INSTALL',
-    icon:    '🪟',
-    title:   'Windows 설치',
-    desc:    '파티션 설정 → 드라이버 설치',
+    context: 'APP_NOT_OPENING',
+    icon:    '▣',
+    title:   '실행 안 됨',
+    desc:    '앱 오류·설치 실패·무반응 해결',
   },
   {
-    context: 'BIOS_RESET',
-    icon:    '🔄',
-    title:   'BIOS 초기화',
-    desc:    'Load Defaults 위치 찾기',
+    context: 'NETWORK_ISSUE',
+    icon:    '⌁',
+    title:   '인터넷 문제',
+    desc:    'Wi-Fi·랜선·DNS·공유기 확인',
   },
   {
-    context: 'SECURE_BOOT',
-    icon:    '🔒',
-    title:   'Secure Boot',
-    desc:    'CSM / Secure Boot 설정 변경',
+    context: 'BLUE_SCREEN',
+    icon:    '!',
+    title:   '블루스크린',
+    desc:    '오류 코드·자동 재부팅 원인 추적',
+  },
+  {
+    context: 'BIOS_BOOT',
+    icon:    '⌨',
+    title:   'BIOS·부팅 설정',
+    desc:    'BIOS 진입·USB 부팅·Secure Boot',
   },
 ];
 
@@ -48,15 +54,6 @@ interface Props {
 export default function GuideContextSelector({ onSelect }: Props) {
   return (
     <div>
-      <p
-        style={{
-          fontSize: '0.82rem',
-          color: 'var(--color-text-secondary, #5d6274)',
-          marginBottom: '0.75rem',
-        }}
-      >
-        어떤 작업을 도와드릴까요?
-      </p>
       <div className="nd-context-grid">
         {OPTIONS.map(opt => (
           <button

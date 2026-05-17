@@ -5,6 +5,17 @@ import App from './App';
 // SystemDashboard는 useSystemInfo에 의존 → App 단위 테스트에서 분리
 vi.mock('./hooks/useSystemInfo', () => ({ useSystemInfo: () => null }));
 
+// LiveGuideMode는 카메라·OpenCV·Gemini 의존 → App 라우팅 테스트에서 분리
+vi.mock('./components/mobile/LiveGuideMode', () => ({
+  default: ({ isStandalone }: { isStandalone: boolean }) => (
+    <div data-testid="live-guide-mode">
+      {isStandalone && (
+        <div role="alert">하드웨어 진단만 가능해요.</div>
+      )}
+    </div>
+  ),
+}));
+
 describe('App — 런타임 모드 배지', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'electronAPI', {

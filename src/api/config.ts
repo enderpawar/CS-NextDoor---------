@@ -1,8 +1,13 @@
 const DEFAULT_API_BASE_URL = 'http://localhost:8080';
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 function normalizeApiBaseUrl(value: string | undefined): string {
   const cleaned = value?.replace(/^\uFEFF/, '').trim().replace(/\/$/, '');
-  return cleaned || DEFAULT_API_BASE_URL;
+  if (!cleaned) return DEFAULT_API_BASE_URL;
+  if (cleaned.includes('localhost') && typeof window !== 'undefined' && !LOCAL_HOSTS.has(window.location.hostname)) {
+    return '';
+  }
+  return cleaned;
 }
 
 export const API_BASE_URL =

@@ -3,7 +3,7 @@ import { useRuntimeMode } from './hooks/useRuntimeMode';
 import { useSystemInfo } from './hooks/useSystemInfo';
 import type { ClipboardImage, HypothesesResponse } from './types';
 import ElectronDashboard from './components/desktop/ElectronDashboard';
-import PwaPage from './components/mobile/PwaPage';
+import LiveGuideMode from './components/mobile/LiveGuideMode';
 import { generateHypotheses } from './api/diagnosisApi';
 import type { EventLog, ProcessData } from './types/electron';
 import './styles/tokens.css';
@@ -12,11 +12,13 @@ import './styles/animations.css';
 
 
 const CPU_HISTORY_MAX = 60;
+const INTRO_TRANSITION_MS = 820;
 
 export default function App() {
   const mode = useRuntimeMode();
   const sysInfo = useSystemInfo();
-  const [introDone, setIntroDone] = useState(false);
+  const [introVisible, setIntroVisible] = useState(true);
+  const [introLeaving, setIntroLeaving] = useState(false);
   const [symptom, setSymptom] = useState('');
   const [clipboardImage, setClipboardImage] = useState<ClipboardImage | null>(null);
 
@@ -28,11 +30,6 @@ export default function App() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [eventLogs, setEventLogs] = useState<EventLog[]>([]);
   const [processData, setProcessData] = useState<ProcessData | null>(null);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setIntroDone(true), 3150);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   // CPU 사용률 히스토리 — 실시간 꺾은선 그래프용
   useEffect(() => {
@@ -70,6 +67,12 @@ export default function App() {
   };
 
   const clearImage = () => setClipboardImage(null);
+
+  const enterApp = () => {
+    if (introLeaving) return;
+    setIntroLeaving(true);
+    window.setTimeout(() => setIntroVisible(false), INTRO_TRANSITION_MS);
+  };
 
   // Phase 5: 진단 요청 — 가설 생성
   const handleDiagnose = async () => {
@@ -113,57 +116,70 @@ export default function App() {
   };
 
   return (
-    <div className={`app-root mode-${mode}`}>
-      {!introDone && (
-        <div className="nd-intro-sequence" aria-hidden="true">
+    <div className={`app-root mode-${mode} ${introVisible ? 'intro-active' : 'intro-entered'} ${introLeaving ? 'intro-leaving' : ''}`}>
+      {introVisible && (
+        <button
+          type="button"
+          className={`nd-intro-sequence ${introLeaving ? 'is-leaving' : ''}`}
+          onClick={enterApp}
+          aria-label="인트로를 닫고 진단 화면으로 이동"
+        >
           <div className="nd-intro-frame">
             <div className="nd-intro-header">
-              <span>PC DIAGNOSIS</span>
-              <span>NEXTDOOR CS</span>
+              <span>NextDoor CS</span>
+              <span>AI PC Diagnosis</span>
             </div>
             <div className="nd-intro-core">
+              <span className="nd-intro-orbit nd-intro-orbit-one" />
+              <span className="nd-intro-orbit nd-intro-orbit-two" />
               <span className="nd-intro-reticle" />
               <span className="nd-intro-mark">N</span>
               <div className="nd-intro-title">
                 <p>옆집 컴공생</p>
-                <strong>AI PC 진단을 준비하고 있습니다</strong>
+                <strong>PC 문제를 바로 읽는 AI 진단</strong>
               </div>
             </div>
             <div className="nd-intro-log">
-              <span>01. 시스템 상태 확인</span>
-              <span>02. 이벤트 로그 연결</span>
-              <span>03. 카메라·마이크 진단 대기</span>
-              <span>04. 증상 입력 화면 준비</span>
+              <span>System</span>
+              <span>Vision</span>
+              <span>Signal</span>
+              <span>Ready</span>
             </div>
             <div className="nd-intro-progress"><span /></div>
+            <div className="nd-intro-cta">
+              <span>Click to enter</span>
+              <span aria-hidden="true">→</span>
+            </div>
           </div>
-        </div>
+        </button>
       )}
 
-      {/* ── PWA 모드 ── */}
-      {mode !== 'electron' && (
-        <PwaPage isStandalone={mode === 'pwa-standalone'} />
-      )}
+      <div className="nd-app-stage">
+        {/* ── PWA 모드 — Camera-First 진입 ── */}
+        {mode !== 'electron' && (
+          <LiveGuideMode isStandalone={mode === 'pwa-standalone'} />
+        )}
 
-      {/* ── Electron 모드 — 3컬럼 대시보드 ── */}
-      {mode === 'electron' && (
-        <ElectronDashboard
-          sysInfo={sysInfo}
-          cpuHistory={cpuHistory}
-          symptom={symptom}
-          clipboardImage={clipboardImage}
-          isLoading={isLoading}
-          apiError={apiError}
-          processData={processData}
-          eventLogs={eventLogs}
-          diagnosisResponse={diagnosisResponse}
-          onSymptomChange={setSymptom}
-          onPaste={handlePaste}
-          onDiagnose={handleDiagnose}
-          onClearImage={clearImage}
-          onReset={handleReset}
-        />
-      )}
+        {/* ── Electron 모드 — 3컬럼 대시보드 ── */}
+        {mode === 'electron' && (
+          <ElectronDashboard
+            sysInfo={sysInfo}
+            cpuHistory={cpuHistory}
+            symptom={symptom}
+            clipboardImage={clipboardImage}
+            isLoading={isLoading}
+            apiError={apiError}
+            processData={processData}
+            eventLogs={eventLogs}
+            diagnosisResponse={diagnosisResponse}
+            onSymptomChange={setSymptom}
+            onPaste={handlePaste}
+            onDiagnose={handleDiagnose}
+            onClearImage={clearImage}
+            onReset={handleReset}
+          />
+        )}
+      </div>
     </div>
   );
 }

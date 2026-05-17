@@ -35,7 +35,7 @@ public class DiagnosisController {
      */
     @PostMapping("/hardware")
     public ResponseEntity<?> diagnoseHardware(
-            @RequestParam("image") MultipartFile image,
+            @RequestParam(value = "image", required = false) MultipartFile image,
             @RequestParam(value = "audio", required = false) MultipartFile audio,
             @RequestParam(value = "audioMimeType", required = false) String audioMimeType,
             @RequestParam("symptom") String symptom,
@@ -43,9 +43,11 @@ public class DiagnosisController {
             @RequestParam(value = "sessionId", required = false) String sessionId,
             HttpServletRequest request) throws IOException {
 
-        rateLimiter.checkLimit(getClientIp(request));
+        rateLimiter.checkLimit("hardware", getClientIp(request));
 
-        String base64Image = Base64.getEncoder().encodeToString(image.getBytes());
+        String base64Image = image != null && !image.isEmpty()
+            ? Base64.getEncoder().encodeToString(image.getBytes())
+            : null;
         byte[] audioBytes = audio != null ? audio.getBytes() : null;
 
         DiagnosisResponse response = diagnosisService.diagnoseMultimodal(
@@ -63,7 +65,7 @@ public class DiagnosisController {
             @RequestBody HypothesisRequest req,
             HttpServletRequest request) {
 
-        rateLimiter.checkLimit(getClientIp(request));
+        rateLimiter.checkLimit("software", getClientIp(request));
 
         HypothesisResponse response = diagnosisService.generateHypotheses(req);
         return ResponseEntity.ok(response);
@@ -78,7 +80,7 @@ public class DiagnosisController {
             @RequestBody SoftwareDiagnosisRequest req,
             HttpServletRequest request) {
 
-        rateLimiter.checkLimit(getClientIp(request));
+        rateLimiter.checkLimit("software", getClientIp(request));
 
         SoftwareDiagnosisResponse response = diagnosisService.confirmSoftwareDiagnosis(req);
         return ResponseEntity.ok(response);
@@ -93,7 +95,7 @@ public class DiagnosisController {
             @RequestBody PatternsRequest req,
             HttpServletRequest request) {
 
-        rateLimiter.checkLimit(getClientIp(request));
+        rateLimiter.checkLimit("software", getClientIp(request));
 
         PatternsResponse response = diagnosisService.suggestPatterns(req);
         return ResponseEntity.ok(response);

@@ -3,7 +3,7 @@
  *
  * 마이크 녹음(최대 10초) → /api/diagnosis/hardware 전송 → 비프음 분석 결과 표시.
  *
- * - iOS Safari: audio/webm 미지원 → audio/mp4 폴백
+ * - MediaRecorder 결과(webm/mp4)는 Gemini inline audio 미지원 가능성이 있어 전송 전 WAV로 변환
  * - AEC/NS/AGC 비활성화 필수 — 활성 시 비프음 주파수 제거됨
  * - biosType 미선택 시 버튼 비활성화 (implementation-checklist.md 11-1)
  */
@@ -14,6 +14,7 @@ import { API_BASE_URL } from '../../api/config';
 import '../../styles/mobile.css';
 
 const MAX_SEC     = 10;   // 최대 녹음 시간
+const WAV_MIME    = 'audio/wav';
 
 interface Props {
   biosType: BiosType | null;
@@ -101,19 +102,23 @@ export default function AudioCapture({ biosType, symptom = '비프음 진단' }:
 
     try {
       const form = new FormData();
-      // 백엔드는 multipart/form-data 기대 — image 필드 필수이므로 1×1 더미 이미지 전송
-      const dummyImage = new Blob(
-        [new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0xff, 0xd9])],
-        { type: 'image/jpeg' },
-      );
-      form.append('image', dummyImage, 'placeholder.jpg');
-      form.append('audio', blobRef.current, `beep.${mimeTypeRef.current === 'audio/mp4' ? 'mp4' : 'webm'}`);
-      form.append('audioMimeType', mimeTypeRef.current);
+      const wavBlob = await convertRecordingToWav(blobRef.current);
+      form.append('audio', wavBlob, 'beep.wav');
+      form.append('audioMimeType', WAV_MIME);
       form.append('symptom', symptom);
       form.append('biosType', biosType);
 
       const res = await fetch(`${API_BASE_URL}/api/diagnosis/hardware`, { method: 'POST', body: form });
-      if (!res.ok) throw new Error(`서버 오류 ${res.status}`);
+      if (!res.ok) {
+        let message = `서버 오류 ${res.status}`;
+        try {
+          const errorBody = await res.json() as { error?: string };
+          message = errorBody.error ?? message;
+        } catch {
+          // JSON 오류 응답이 아니면 상태 코드 메시지 사용
+        }
+        throw new Error(message);
+      }
       const data: DiagnosisResponse = await res.json();
       setResult(data);
     } catch (e) {
@@ -204,4 +209,81 @@ export default function AudioCapture({ biosType, symptom = '비프음 진단' }:
       )}
     </div>
   );
+}
+
+async function convertRecordingToWav(blob: Blob): Promise<Blob> {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) {
+    throw new Error('이 브라우저에서는 오디오 변환을 지원하지 않아요.');
+  }
+
+  const audioContext = new AudioContextClass();
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    return encodeWav(audioBuffer);
+  } finally {
+    void audioContext.close();
+  }
+}
+
+function encodeWav(audioBuffer: AudioBuffer): Blob {
+  const channelCount = Math.min(audioBuffer.numberOfChannels, 2);
+  const sampleRate = audioBuffer.sampleRate;
+  const samples = interleaveChannels(audioBuffer, channelCount);
+  const bytesPerSample = 2;
+  const blockAlign = channelCount * bytesPerSample;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  writeAscii(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, 'WAVE');
+  writeAscii(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channelCount, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (const sample of samples) {
+    const clamped = Math.max(-1, Math.min(1, sample));
+    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: WAV_MIME });
+}
+
+function interleaveChannels(audioBuffer: AudioBuffer, channelCount: number): Float32Array {
+  const length = audioBuffer.length;
+  const result = new Float32Array(length * channelCount);
+  const channels = Array.from({ length: channelCount }, (_, i) => audioBuffer.getChannelData(i));
+
+  for (let i = 0; i < length; i++) {
+    for (let ch = 0; ch < channelCount; ch++) {
+      const channel = channels[ch];
+      result[i * channelCount + ch] = channel ? channel[i] ?? 0 : 0;
+    }
+  }
+
+  return result;
+}
+
+function writeAscii(view: DataView, offset: number, value: string) {
+  for (let i = 0; i < value.length; i++) {
+    view.setUint8(offset + i, value.charCodeAt(i));
+  }
+}
+
+declare global {
+  interface Window {
+    webkitAudioContext?: typeof AudioContext;
+  }
 }

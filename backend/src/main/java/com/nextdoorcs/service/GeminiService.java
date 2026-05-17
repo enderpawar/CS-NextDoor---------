@@ -4,6 +4,7 @@ import com.nextdoorcs.exception.DiagnosisException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
@@ -54,7 +55,10 @@ public class GeminiService {
 
         List<Map<String, Object>> parts = new ArrayList<>();
         parts.add(Map.of("text", buildHardwareSystemPrompt(symptom, biosType)));
-        parts.add(Map.of("inline_data", Map.of("mime_type", "image/jpeg", "data", base64Image)));
+
+        if (base64Image != null && !base64Image.isBlank()) {
+            parts.add(Map.of("inline_data", Map.of("mime_type", "image/jpeg", "data", base64Image)));
+        }
 
         if (audioBytes != null) {
             String mimeType = (audioMimeType != null && !audioMimeType.isBlank())
@@ -87,14 +91,29 @@ public class GeminiService {
     // ── Private helpers ────────────────────────────────────────────────────────
 
     private String callGemini(List<Map<String, Object>> parts) {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new DiagnosisException("Gemini API 키가 설정되지 않았어요. 백엔드 실행 환경에 GEMINI_API_KEY를 넣어주세요.");
+        }
+
         Map<String, Object> requestBody = Map.of(
             "contents", List.of(Map.of("parts", parts))
         );
         String url = GEMINI_BASE_URL + model + ":generateContent?key=" + apiKey;
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> response = restTemplate.postForObject(url, requestBody, Map.class);
-        return extractText(response);
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = restTemplate.postForObject(url, requestBody, Map.class);
+            return extractText(response);
+        } catch (HttpStatusCodeException e) {
+            int status = e.getStatusCode().value();
+            if (status == 403) {
+                throw new DiagnosisException("Gemini API 키 또는 모델 접근 권한을 확인해주세요.", 500);
+            }
+            if (status == 404) {
+                throw new DiagnosisException("Gemini 모델을 찾을 수 없어요. GEMINI_MODEL 설정을 확인해주세요.", 500);
+            }
+            throw new DiagnosisException("Gemini API 호출에 실패했어요. 상태 코드: " + status, 500);
+        }
     }
 
     /**

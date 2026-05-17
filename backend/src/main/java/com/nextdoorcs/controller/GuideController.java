@@ -2,15 +2,19 @@ package com.nextdoorcs.controller;
 
 import com.nextdoorcs.dto.GuideFrameRequest;
 import com.nextdoorcs.dto.GuideStartRequest;
+import com.nextdoorcs.exception.DiagnosisException;
 import com.nextdoorcs.ratelimit.ApiRateLimiter;
 import com.nextdoorcs.service.LiveGuideService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
+import java.time.LocalTime;
 import java.util.Map;
 
 @RestController
@@ -23,14 +27,13 @@ public class GuideController {
 
     /**
      * POST /api/guide/start
-     * 가이드 세션 생성 — context(BIOS_ENTRY 등) 전달, sessionId 반환
+     * 가이드 세션 생성 — context(NO_BOOT 등) 전달, sessionId 반환
      */
     @PostMapping("/start")
     public ResponseEntity<Map<String, String>> startSession(
             @RequestBody GuideStartRequest req,
             HttpServletRequest httpReq) {
 
-        rateLimiter.checkLimit(getClientIp(httpReq));
         String sessionId = liveGuideService.createSession(req.context());
         return ResponseEntity.ok(Map.of("sessionId", sessionId));
     }
@@ -49,7 +52,7 @@ public class GuideController {
             @RequestBody GuideFrameRequest req,
             HttpServletRequest httpReq) {
 
-        rateLimiter.checkLimit(getClientIp(httpReq));
+        rateLimiter.checkLimit("guide", getClientIp(httpReq));
         return liveGuideService.processFrame(
             sessionId,
             req.frameBase64(),
@@ -66,6 +69,27 @@ public class GuideController {
     public ResponseEntity<Void> deleteSession(@PathVariable String sessionId) {
         liveGuideService.deleteSession(sessionId);
         return ResponseEntity.noContent().build();
+    }
+
+    // ── 예외 처리 ───────────────────────────────────────────────────────────
+
+    @ExceptionHandler(DiagnosisException.class)
+    public ResponseEntity<Map<String, String>> handleDiagnosisException(DiagnosisException e) {
+        if (e.getHttpStatus() == 429) {
+            // 일일 한도 초과 → 자정까지 남은 초를 Retry-After로 전달
+            LocalTime now = LocalTime.now();
+            long secsUntilMidnight = (24L * 3600) - (now.toSecondOfDay());
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Retry-After", String.valueOf(secsUntilMidnight));
+            return ResponseEntity.status(429).headers(headers).body(Map.of("error", e.getMessage()));
+        }
+        return ResponseEntity.status(e.getHttpStatus()).body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, String>> handleGenericException(Exception e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(Map.of("error", "서버 오류가 발생했어요: " + e.getMessage()));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

@@ -109,11 +109,12 @@ export type RecordingState = 'idle' | 'recording' | 'recorded';
 // ── Live Camera Guide Mode ────────────────────────────────────────────────────
 
 export type GuideContext =
-  | 'BIOS_ENTRY'         // BIOS 진입 키 안내 (F2 / Del / F10 / F12)
-  | 'BOOT_MENU'          // USB·SSD 부팅 우선순위 설정
-  | 'WINDOWS_INSTALL'    // 파티션 설정 → 드라이버 설치
-  | 'BIOS_RESET'         // Load Defaults 위치 찾기
-  | 'SECURE_BOOT';       // CSM / Secure Boot 변경
+  | 'NO_BOOT'            // 전원은 들어오지만 부팅/화면 표시 실패
+  | 'SLOW_PC'            // 성능 저하, 멈춤, 발열, 팬 소음
+  | 'APP_NOT_OPENING'    // 프로그램 실행 불가, 오류 팝업
+  | 'NETWORK_ISSUE'      // 인터넷, Wi-Fi, DNS, 공유기 문제
+  | 'BLUE_SCREEN'        // BSOD, 오류 코드, 자동 재부팅
+  | 'BIOS_BOOT';         // BIOS/부팅 순서/Secure Boot/Windows 설치
 
 export interface GuideMessage {
   role: 'user' | 'model';

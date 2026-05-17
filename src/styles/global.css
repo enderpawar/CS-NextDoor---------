@@ -7928,7 +7928,8 @@ body {
   background:
     radial-gradient(circle at 50% 42%, rgba(37, 99, 235, 0.12), transparent 28%),
     linear-gradient(180deg, #fbfdff 0%, #eef4fb 100%);
-  animation: ndArchiveIntroExit 360ms ease 1700ms forwards;
+  animation: ndDxIntroExit 620ms cubic-bezier(0.22, 1, 0.36, 1) 2380ms forwards;
+  will-change: opacity, filter;
 }
 
 .nd-intro-sequence::before,
@@ -7943,7 +7944,9 @@ body {
   border: 1px solid var(--nd-dx-border);
   background: rgba(255, 255, 255, 0.92);
   box-shadow: var(--nd-dx-shadow);
-  animation: ndArchivePanelIn 360ms ease 80ms forwards;
+  transform: translateY(14px) scale(0.985);
+  animation: ndDxPanelIn 720ms cubic-bezier(0.16, 1, 0.3, 1) 90ms forwards;
+  will-change: opacity, transform;
 }
 
 .nd-intro-frame::before {
@@ -7952,7 +7955,7 @@ body {
 
 .nd-intro-frame::after {
   background: linear-gradient(180deg, transparent, rgba(37, 99, 235, 0.12), transparent);
-  animation-duration: 1100ms;
+  animation: ndDxScanIntro 1900ms cubic-bezier(0.45, 0, 0.2, 1) 540ms both;
 }
 
 .nd-intro-header,
@@ -7964,6 +7967,7 @@ body {
 
 .nd-intro-reticle {
   border-color: rgba(37, 99, 235, 0.32);
+  animation: ndDxReticle 2100ms cubic-bezier(0.22, 1, 0.36, 1) 360ms forwards;
 }
 
 .nd-intro-reticle::before,
@@ -7977,6 +7981,7 @@ body {
   color: #fff;
   font-family: inherit;
   box-shadow: 0 12px 26px rgba(37, 99, 235, 0.18);
+  animation: ndDxStamp 720ms cubic-bezier(0.16, 1, 0.3, 1) 620ms forwards;
 }
 
 .nd-intro-title p,
@@ -7987,9 +7992,18 @@ body {
   letter-spacing: 0;
 }
 
+.nd-intro-title strong {
+  animation: ndDxTitleReveal 880ms cubic-bezier(0.22, 1, 0.36, 1) 900ms forwards;
+}
+
 .nd-intro-title p {
   color: var(--nd-dx-primary-strong);
 }
+
+.nd-intro-log span:nth-child(1) { animation: ndDxLogIn 420ms cubic-bezier(0.22, 1, 0.36, 1) 1160ms forwards; }
+.nd-intro-log span:nth-child(2) { animation: ndDxLogIn 420ms cubic-bezier(0.22, 1, 0.36, 1) 1320ms forwards; }
+.nd-intro-log span:nth-child(3) { animation: ndDxLogIn 420ms cubic-bezier(0.22, 1, 0.36, 1) 1480ms forwards; }
+.nd-intro-log span:nth-child(4) { animation: ndDxLogIn 420ms cubic-bezier(0.22, 1, 0.36, 1) 1640ms forwards; }
 
 .nd-intro-progress {
   height: 10px;
@@ -8000,7 +8014,103 @@ body {
 
 .nd-intro-progress span {
   background: linear-gradient(90deg, var(--nd-dx-primary), var(--nd-dx-teal));
-  animation-duration: 1500ms;
+  animation: ndDxProgress 2100ms cubic-bezier(0.22, 1, 0.36, 1) 360ms both;
+}
+
+@keyframes ndDxPanelIn {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ndDxReticle {
+  0% {
+    opacity: 0;
+    transform: scale(0.82) rotate(-12deg);
+  }
+  28% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0.34;
+    transform: scale(1.08) rotate(90deg);
+  }
+}
+
+@keyframes ndDxStamp {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.88);
+    filter: blur(6px);
+  }
+  60% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes ndDxTitleReveal {
+  0% {
+    max-width: 0;
+    opacity: 0;
+  }
+  100% {
+    max-width: 520px;
+    opacity: 1;
+  }
+}
+
+@keyframes ndDxLogIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ndDxProgress {
+  0% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+
+@keyframes ndDxScanIntro {
+  0% {
+    opacity: 0;
+    transform: translateY(-150px);
+  }
+  22%,
+  76% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(150px);
+  }
+}
+
+@keyframes ndDxIntroExit {
+  0% {
+    opacity: 1;
+    filter: blur(0) brightness(1);
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+    filter: blur(10px) brightness(1.03);
+  }
 }
 
 @media (max-width: 1080px) {
@@ -8057,5 +8167,551 @@ body {
 
   .nd-command-visual {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ── Click-to-enter intro page ─────────────────────────────────────────── */
+.nd-app-stage {
+  min-height: 100vh;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  transition:
+    opacity 760ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 760ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 520ms ease;
+  will-change: opacity, transform;
+}
+
+.app-root.intro-active:not(.intro-leaving) .nd-app-stage {
+  opacity: 0;
+  transform: translateY(20px) scale(0.992);
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+.app-root.intro-leaving .nd-app-stage {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  pointer-events: auto;
+}
+
+.app-root.intro-entered .nd-app-stage {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
+.nd-intro-sequence {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  min-height: 100dvh;
+  text-align: left;
+  cursor: pointer;
+  color: #f8fbff;
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+    radial-gradient(circle at 50% 44%, rgba(20, 184, 166, 0.28), transparent 24%),
+    radial-gradient(circle at 76% 60%, rgba(37, 99, 235, 0.22), transparent 30%),
+    linear-gradient(145deg, #07111f 0%, #0d1728 48%, #122447 100%);
+  background-size: 32px 32px, 32px 32px, auto, auto, auto;
+  animation: ndIntroStageIn 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+  transition:
+    opacity 760ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 760ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 520ms ease;
+  will-change: opacity, transform;
+}
+
+.nd-intro-sequence::before,
+.nd-intro-sequence::after {
+  display: block;
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+.nd-intro-sequence::before {
+  inset: 0;
+  background:
+    linear-gradient(120deg, transparent 0 42%, rgba(255, 255, 255, 0.12) 48%, transparent 54%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 28%, rgba(255, 255, 255, 0.05));
+  mix-blend-mode: screen;
+  opacity: 0.42;
+  animation: ndIntroLightSweep 4200ms cubic-bezier(0.45, 0, 0.2, 1) infinite;
+}
+
+.nd-intro-sequence::after {
+  inset: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.16);
+  border-radius: 14px;
+  opacity: 0.9;
+}
+
+.nd-intro-sequence.is-leaving {
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(1.006);
+  filter: blur(3px);
+  animation: none;
+}
+
+.nd-intro-sequence.is-leaving .nd-intro-frame {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.99);
+  animation: none;
+}
+
+.nd-intro-frame {
+  width: min(1060px, calc(100vw - 48px));
+  min-height: min(700px, calc(100dvh - 56px));
+  padding: clamp(22px, 4.2vw, 56px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: none;
+  animation: ndIntroFrameRise 760ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+  transition:
+    opacity 680ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 680ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.nd-intro-frame::before {
+  display: block;
+  inset: auto 4% 8% 4%;
+  height: 42%;
+  border: 0;
+  border-radius: 999px 999px 0 0;
+  background:
+    radial-gradient(ellipse at 50% 100%, rgba(96, 165, 250, 0.20), transparent 62%),
+    linear-gradient(180deg, rgba(94, 234, 212, 0.12), transparent);
+  filter: blur(4px);
+  opacity: 0.92;
+}
+
+.nd-intro-frame::after {
+  left: 7%;
+  right: 7%;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(94, 234, 212, 0.65), rgba(96, 165, 250, 0.45), transparent);
+  opacity: 0.9;
+  animation: ndIntroTopLine 1800ms cubic-bezier(0.16, 1, 0.3, 1) 360ms both;
+}
+
+.nd-intro-header {
+  position: relative;
+  z-index: 2;
+  border-bottom: 0;
+  color: rgba(226, 232, 240, 0.72);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding-bottom: 0;
+  animation: ndIntroHeaderIn 700ms cubic-bezier(0.16, 1, 0.3, 1) 220ms both;
+}
+
+.nd-intro-core {
+  min-height: clamp(390px, 62dvh, 520px);
+  gap: clamp(16px, 3vw, 28px);
+}
+
+.nd-intro-orbit,
+.nd-intro-reticle {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.nd-intro-orbit {
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  opacity: 0;
+}
+
+.nd-intro-orbit-one {
+  width: min(440px, 72vw);
+  height: min(440px, 72vw);
+  animation: ndIntroOrbitOne 5200ms linear 280ms infinite;
+}
+
+.nd-intro-orbit-two {
+  width: min(570px, 88vw);
+  height: min(570px, 88vw);
+  border-color: rgba(94, 234, 212, 0.18);
+  animation: ndIntroOrbitTwo 6800ms linear 420ms infinite;
+}
+
+.nd-intro-reticle {
+  width: min(330px, 62vw);
+  height: min(330px, 62vw);
+  border-color: rgba(94, 234, 212, 0.28);
+  animation: ndIntroReticleSpin 6200ms linear 240ms infinite;
+}
+
+.nd-intro-reticle::before,
+.nd-intro-reticle::after {
+  background: rgba(94, 234, 212, 0.38);
+}
+
+.nd-intro-mark {
+  width: clamp(76px, 11vw, 112px);
+  height: clamp(76px, 11vw, 112px);
+  border-radius: 24px;
+  background: linear-gradient(135deg, #2563eb, #14b8a6);
+  color: #ffffff;
+  font-size: clamp(34px, 5vw, 54px);
+  font-family: var(--font-display);
+  box-shadow: 0 22px 48px rgba(20, 184, 166, 0.22);
+  animation: ndIntroMarkPop 760ms cubic-bezier(0.16, 1, 0.3, 1) 560ms both;
+}
+
+.nd-intro-title {
+  display: grid;
+  gap: 12px;
+  max-width: 920px;
+}
+
+.nd-intro-title p {
+  color: #5eead4;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.nd-intro-title strong {
+  max-width: none;
+  white-space: normal;
+  color: #f8fbff;
+  font-family: var(--font-sans);
+  font-size: clamp(42px, 7.2vw, 92px);
+  font-weight: 850;
+  line-height: 0.98;
+  letter-spacing: 0;
+  text-align: center;
+  animation: ndIntroTitleLift 980ms cubic-bezier(0.16, 1, 0.3, 1) 760ms both;
+}
+
+.nd-intro-log {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(18px, 4vw, 54px);
+  padding: 8px 0 4px;
+  border-top: 0;
+  border-bottom: 0;
+  overflow: hidden;
+}
+
+.nd-intro-log::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(94, 234, 212, 0.46), rgba(96, 165, 250, 0.38), transparent);
+  transform: translateX(-104%);
+  animation: ndIntroRailSweep 1900ms cubic-bezier(0.16, 1, 0.3, 1) 900ms both;
+}
+
+.nd-intro-log::after {
+  display: none;
+}
+
+.nd-intro-log span {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: rgba(226, 232, 240, 0.68);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(8px);
+  filter: none;
+  animation: ndIntroTelemetryIn 1200ms cubic-bezier(0.16, 1, 0.3, 1) 980ms both;
+}
+
+.nd-intro-log span::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #5eead4;
+  box-shadow: 0 0 18px rgba(94, 234, 212, 0.5);
+}
+
+.nd-intro-log span:nth-child(2) { animation-delay: 1040ms; }
+.nd-intro-log span:nth-child(3) { animation-delay: 1100ms; }
+.nd-intro-log span:nth-child(4) { animation-delay: 1160ms; }
+
+.nd-intro-progress {
+  position: relative;
+  z-index: 1;
+  width: min(520px, 100%);
+  height: 4px;
+  justify-self: center;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.12);
+}
+
+.nd-intro-progress span {
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5eead4, #60a5fa, #f8fbff);
+  animation: ndIntroProgressLoop 2800ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.nd-intro-cta {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 0 22px;
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  border-radius: 999px;
+  background: rgba(8, 17, 31, 0.52);
+  color: #f8fbff;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  animation: ndIntroCtaPulse 1800ms ease-in-out 1700ms infinite;
+}
+
+.nd-intro-sequence:focus-visible .nd-intro-cta,
+.nd-intro-sequence:hover .nd-intro-cta {
+  background: rgba(94, 234, 212, 0.18);
+  border-color: rgba(94, 234, 212, 0.55);
+}
+
+@keyframes ndIntroStageIn {
+  from { opacity: 0; filter: blur(10px); }
+  to { opacity: 1; filter: blur(0); }
+}
+
+@keyframes ndIntroFrameRise {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ndIntroLightSweep {
+  0% { transform: translateX(-34%); }
+  55%, 100% { transform: translateX(34%); }
+}
+
+@keyframes ndIntroScanline {
+  0% { transform: translateY(-170px); opacity: 0; }
+  22%, 70% { opacity: 0.5; }
+  100% { transform: translateY(520px); opacity: 0; }
+}
+
+@keyframes ndIntroTopLine {
+  from {
+    opacity: 0;
+    clip-path: inset(0 50% 0 50%);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes ndIntroHeaderIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ndIntroOrbitOne {
+  0% { opacity: 0; transform: scale(0.84) rotate(0deg); }
+  18%, 100% { opacity: 1; }
+  100% { transform: scale(1.02) rotate(180deg); }
+}
+
+@keyframes ndIntroOrbitTwo {
+  0% { opacity: 0; transform: scale(0.76) rotate(12deg); }
+  20%, 100% { opacity: 0.8; }
+  100% { transform: scale(1.06) rotate(-160deg); }
+}
+
+@keyframes ndIntroReticleSpin {
+  0% { opacity: 0; transform: scale(0.82) rotate(-20deg); }
+  14%, 100% { opacity: 0.9; }
+  100% { transform: scale(1.08) rotate(180deg); }
+}
+
+@keyframes ndIntroMarkPop {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.82);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes ndIntroTitleLift {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes ndIntroItemIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ndIntroTelemetryIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes ndIntroRailSweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-104%);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(104%);
+  }
+}
+
+@keyframes ndIntroProgressLoop {
+  0% { transform: scaleX(0); transform-origin: left center; }
+  62% { transform: scaleX(1); transform-origin: left center; }
+  63% { transform-origin: right center; }
+  100% { transform: scaleX(0.18); transform-origin: right center; }
+}
+
+@keyframes ndIntroCtaPulse {
+  0%, 100% { transform: translateY(0); box-shadow: 0 0 0 rgba(94, 234, 212, 0); }
+  50% { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(94, 234, 212, 0.12); }
+}
+
+@media (max-width: 760px) {
+  .nd-intro-sequence {
+    padding: 18px 14px;
+  }
+
+  .nd-intro-frame {
+    width: 100%;
+    min-height: calc(100dvh - 36px);
+    padding: 24px 22px;
+  }
+
+  .nd-intro-header {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .nd-intro-core {
+    min-height: 58dvh;
+    gap: 16px;
+  }
+
+  .nd-intro-log {
+    justify-content: flex-start;
+    gap: 20px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nd-intro-log::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nd-intro-title strong {
+    font-size: clamp(40px, 13vw, 58px);
+    line-height: 1.02;
+  }
+
+  .nd-intro-orbit-two {
+    width: 360px;
+    height: 360px;
+  }
+
+  .nd-intro-reticle {
+    width: 260px;
+    height: 260px;
+  }
+
+  .nd-intro-cta {
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 420px) {
+  .nd-intro-title strong {
+    font-size: 39px;
+  }
+
+  .nd-intro-header {
+    font-size: 10px;
+  }
+
+  .nd-intro-log span {
+    font-size: 9px;
   }
 }

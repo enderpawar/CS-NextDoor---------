@@ -11,14 +11,22 @@ const BIOS_OPTIONS: { type: BiosType; icon: string; title: string; desc: string 
 interface Props {
   selected: BiosType | null;
   onSelect: (type: BiosType) => void;
+  autoDetected?: BiosType | null;
 }
 
-export default function BiosTypeSelector({ selected, onSelect }: Props) {
+export default function BiosTypeSelector({ selected, onSelect, autoDetected = null }: Props) {
   return (
     <div className="nd-bios-selector">
-      <span className="nd-bios-selector-label">BIOS 제조사 선택</span>
+      <div className="nd-bios-selector-heading">
+        <span className="nd-bios-selector-label">BIOS 제조사 선택</span>
+        {autoDetected && selected === autoDetected && (
+          <span className="nd-bios-auto-badge">자동 감지</span>
+        )}
+      </div>
       <p className="nd-bios-selector-hint">
-        비프음 패턴은 BIOS 제조사마다 달라요. 부팅 로고 화면에서 확인할 수 있어요.
+        {autoDetected && selected === autoDetected
+          ? `${autoDetected}로 추정했어요. 다르면 직접 바꿔주세요.`
+          : '비프음 패턴은 BIOS 제조사마다 달라요. 부팅 로고 화면에서 확인할 수 있어요.'}
       </p>
       <div className="nd-bios-grid">
         {BIOS_OPTIONS.map(({ type, icon, title, desc }) => (

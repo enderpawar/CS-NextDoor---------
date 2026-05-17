@@ -119,24 +119,26 @@ public class LiveGuideService {
             : "\n\nOpenCV 전처리 요약:\n" + cvSummary;
 
         String contextDesc = switch (context) {
-            case "BIOS_ENTRY"       -> "BIOS 진입 (Del/F2/F10/F12 키)";
-            case "BOOT_MENU"        -> "부팅 메뉴 (USB/SSD 우선순위 설정)";
-            case "WINDOWS_INSTALL"  -> "Windows 설치 (파티션 설정 → 드라이버)";
-            case "BIOS_RESET"       -> "BIOS 초기화 (Load Defaults)";
-            case "SECURE_BOOT"      -> "Secure Boot 설정 변경";
+            case "NO_BOOT"          -> "PC 부팅 불가 또는 화면 표시 실패";
+            case "SLOW_PC"          -> "PC 성능 저하, 멈춤, 발열, 팬 소음";
+            case "APP_NOT_OPENING"  -> "프로그램 실행 불가, 오류 팝업, 설치 실패";
+            case "NETWORK_ISSUE"    -> "인터넷, Wi-Fi, 랜선, DNS, 공유기 문제";
+            case "BLUE_SCREEN"      -> "블루스크린, 중지 코드, 자동 재부팅";
+            case "BIOS_BOOT"        -> "BIOS 진입, 부팅 순서, Secure Boot, Windows 설치";
             default                 -> context;
         };
 
         return """
-            당신은 '옆집 컴공생' AI입니다. 사용자가 카메라로 비추는 PC 화면을 보고 단계별로 안내해주세요.
+            당신은 '옆집 컴공생' AI입니다. 사용자가 PWA 카메라로 비추는 PC 화면, 오류 메시지, 장치 상태를 보고 단계별로 진단해주세요.
             말투: 친근한 공대생처럼, 존댓말 사용. 한 번에 1~2 단계만 안내.
 
-            현재 작업: %s
+            현재 진단 증상: %s
 
             화면을 분석하고:
-            1. 현재 어떤 화면인지 한 줄로 확인
-            2. 다음으로 해야 할 구체적 조작 1~2단계 안내
-            3. 작업이 완전히 완료됐으면 응답 끝에 "[완료]" 태그 포함
+            1. 현재 보이는 화면/오류/상태를 한 줄로 확인
+            2. PWA 환경에서도 사용자가 직접 할 수 있는 확인 또는 조작 1~2단계 안내
+            3. 정확한 원인 판별에 PC 내부 데이터가 필요하면 "더 정확한 진단이 필요하다면 컴퓨터에서 만나요."라고 자연스럽게 안내
+            4. 작업이 완전히 완료됐으면 응답 끝에 "[완료]" 태그 포함
 
             OpenCV 전처리 요약은 화면 품질과 BIOS 화면 정면화 여부를 판단하는 보조 근거로만 사용하세요.
             답변은 3~5문장 이내로 간결하게.%s%s

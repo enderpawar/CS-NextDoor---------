@@ -15,14 +15,35 @@
  */
 
 import Tesseract from 'tesseract.js';
+import type { BiosType } from '../../types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const cv: any;
+
+/**
+ * OCR 텍스트 또는 Gemini 응답 텍스트에서 BIOS 제조사 감지.
+ * 우선순위: Phoenix > Award > AMI (겹침 방지 — AMI는 다수 OEM 라이선시)
+ */
+const VENDOR_PATTERNS: { pattern: RegExp; vendor: BiosType }[] = [
+  { pattern: /\b(Phoenix|PhoenixBIOS|Phoenix-Award)\b/i, vendor: 'Phoenix' },
+  { pattern: /\b(Award|AWARDBIOS|Award Modular|Award-Phoenix)\b/i, vendor: 'Award' },
+  { pattern: /\b(AMI|AMIBIOS|AMIBIOS64|American Megatrends|Aptio Setup|UEFI BIOS Utility)\b/i, vendor: 'AMI' },
+  // 흔한 AMI 라이선시 브랜드 — BIOS 화면에 제조사명 표기 시
+  { pattern: /\b(ASUS|Gigabyte|MSI|AsRock|ASRock)\b/i, vendor: 'AMI' },
+];
+
+export function detectBiosVendor(text: string): BiosType | null {
+  for (const { pattern, vendor } of VENDOR_PATTERNS) {
+    if (pattern.test(text)) return vendor;
+  }
+  return null;
+}
 
 export interface BiosPipelineResult {
   rectified:   boolean;    // Homography 정면화 성공 여부
   ocrText:     string;     // Tesseract 전체 텍스트
   menuItems:   string[];   // 정리된 메뉴 항목 목록
+  detectedVendor: BiosType | null; // OCR 텍스트에서 추론한 BIOS 제조사
   confidence:  number;     // OCR 신뢰도 0.0~1.0
   processingMs: number;    // 처리 시간 (ms)
 }
@@ -32,6 +53,8 @@ export interface BiosGuidePreprocessResult {
   rectified: boolean;
   textRegionCount: number;
   processingMs: number;
+  /** Hough 검출 4 모서리 좌표 (원본 프레임 픽셀 공간). [tl, tr, br, bl] 순서 */
+  corners: number[][] | null;
 }
 
 // ablation 결과 반영 예정 — 노트북 실험 후 업데이트
@@ -67,6 +90,8 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let warped: any = null;
 
+  let detectedCorners: number[][] | null = null;
+
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
     cv.Canny(gray, edges, 50, 150);
@@ -74,6 +99,7 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
 
     const corners = extractQuadCorners(lines, rgba.width, rgba.height);
     if (corners) {
+      detectedCorners = corners.src;   // AR 오버레이용 — 원본 프레임 좌표
       const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.src.flat());
       const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.dst.flat());
       const H = cv.findHomography(srcPts, dstPts, cv.RANSAC, 5.0);
@@ -113,6 +139,7 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
       rectified,
       textRegionCount,
       processingMs: performance.now() - t0,
+      corners: detectedCorners,
     };
   } finally {
     [src, gray, edges, lines, enhanced, binary, labels, stats, centroids].forEach(m => m.delete());
@@ -200,11 +227,13 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
     const ocrText  = data.text.trim();
     const confidence = (data.confidence ?? 0) / 100;
     const menuItems = extractMenuItems(ocrText);
+    const detectedVendor = detectBiosVendor(ocrText);
 
     return {
       rectified,
       ocrText,
       menuItems,
+      detectedVendor,
       confidence,
       processingMs: performance.now() - t0,
     };

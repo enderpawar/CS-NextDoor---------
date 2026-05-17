@@ -22,19 +22,32 @@ import {
   isSceneChanged,
   BEST_PARAMS,
 } from '../lib/cv/changeDetection';
-import { preprocessBiosFrameForGuide } from '../lib/cv/biosPipeline';
-import type { CvFrameInput } from '../types';
+import { preprocessBiosFrameForGuide, runBiosPipeline } from '../lib/cv/biosPipeline';
+import type { BiosType, CvFrameInput } from '../types';
+
+/** CV Insight 패널에 전달할 라이브 메트릭 (300ms 스로틀) */
+export interface CvFrameInsightMetrics {
+  qualityScore: number;   // 0-100
+  changeCount:  number;   // 0..windowSize (연속 변화 프레임 수)
+  histScore:    number;   // 0..1 (마지막 compareHist 유사도)
+}
 
 interface UseLiveFrameCaptureOptions {
-  canvasRef:        React.RefObject<HTMLCanvasElement>;
-  videoRef:         React.RefObject<HTMLVideoElement>;
-  cvReady:          boolean;
-  isSendingRef:     React.MutableRefObject<boolean>;
-  onFrameChange:    (base64: string, histSnapshot: any, cvSummary: string) => void;
+  canvasRef:         React.RefObject<HTMLCanvasElement>;
+  videoRef:          React.RefObject<HTMLVideoElement>;
+  cvReady:           boolean;
+  isSendingRef:      React.MutableRefObject<boolean>;
+  onFrameChange:     (base64: string, histSnapshot: any, cvSummary: string) => void;
   onQualityFeedback?: (guidanceText: string) => void;
-  cooldownMs?:      number;
-  histThreshold?:   number;
-  minQualityScore?: number;
+  onMetricsUpdate?:  (m: CvFrameInsightMetrics) => void;
+  /** AR 오버레이용: 모듈 1 Hough 검출 모서리 + 비디오 원본 해상도 (프레임 전송 시만 호출) */
+  onBiosOverlay?:    (corners: number[][] | null, videoW: number, videoH: number) => void;
+  /** Task 6: 모듈 1 OCR 결과에서 BIOS vendor를 감지했을 때 호출 */
+  onBiosVendorDetected?: (vendor: BiosType) => void;
+  enableBiosVendorOcr?: boolean;
+  cooldownMs?:       number;
+  histThreshold?:    number;
+  minQualityScore?:  number;
 }
 
 export function useLiveFrameCapture({
@@ -44,16 +57,23 @@ export function useLiveFrameCapture({
   isSendingRef,
   onFrameChange,
   onQualityFeedback,
+  onMetricsUpdate,
+  onBiosOverlay,
+  onBiosVendorDetected,
+  enableBiosVendorOcr = false,
   cooldownMs      = 2000,
   histThreshold   = BEST_PARAMS.threshold,
   minQualityScore = 30,
 }: UseLiveFrameCaptureOptions) {
-  const rafRef        = useRef<number>(0);
-  const prevHistRef   = useRef<any>(null);
-  const lastSentRef   = useRef<number>(0);
-  const changeCountRef = useRef<number>(0);
+  const rafRef             = useRef<number>(0);
+  const prevHistRef        = useRef<any>(null);
+  const lastSentRef        = useRef<number>(0);
+  const changeCountRef     = useRef<number>(0);
+  const lastHistScoreRef   = useRef<number>(1);        // 마지막 비교 유사도 (1=동일)
+  const lastMetricsRef     = useRef<number>(0);        // 메트릭 업데이트 스로틀 타임스탬프
+  const vendorOcrRunningRef = useRef(false);
   // stale guide 비교용: 응답 도착 시 LiveGuideMode에서 이 ref를 읽음
-  const currentHistRef = useRef<any>(null);
+  const currentHistRef     = useRef<any>(null);
 
   const processFrame = useCallback(() => {
     const video  = videoRef.current;
@@ -113,6 +133,8 @@ export function useLiveFrameCapture({
       const score   = compareHist(prevHistRef.current, hist);
       const changed = isSceneChanged(score, BEST_PARAMS.metric, histThreshold);
 
+      lastHistScoreRef.current = score;  // 메트릭 패널용 저장
+
       if (changed) {
         changeCountRef.current++;
         // 연속 3프레임 모두 변화 시에만 전송 (false positive — 손 떨림/Rolling Shutter 차단)
@@ -143,8 +165,31 @@ export function useLiveFrameCapture({
               `biosTextRegions=${preprocessed.textRegionCount}`,
               `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
             ].join(', ');
+            onBiosOverlay?.(preprocessed.corners, canvas.width, canvas.height);
           } catch {
             cvSummary = `${cvSummary}, biosPreprocess=failed`;
+            onBiosOverlay?.(null, canvas.width, canvas.height);
+          }
+
+          if (enableBiosVendorOcr && onBiosVendorDetected && !vendorOcrRunningRef.current) {
+            vendorOcrRunningRef.current = true;
+            const ocrFrame = new ImageData(
+              new Uint8ClampedArray(rgba.data),
+              rgba.width,
+              rgba.height,
+            );
+            void runBiosPipeline(ocrFrame)
+              .then(result => {
+                if (result.detectedVendor) {
+                  onBiosVendorDetected(result.detectedVendor);
+                }
+              })
+              .catch(() => {
+                // OCR 실패는 라이브 가이드 흐름을 막지 않음
+              })
+              .finally(() => {
+                vendorOcrRunningRef.current = false;
+              });
           }
 
           const histSnapshot = hist.clone();   // caller(.LiveGuideMode)가 delete 책임
@@ -155,11 +200,22 @@ export function useLiveFrameCapture({
       }
     }
 
+    // ── CV Insight 메트릭 스로틀 업데이트 (300ms) ──────────────────────────────
+    if (onMetricsUpdate && now - lastMetricsRef.current > 300) {
+      lastMetricsRef.current = now;
+      onMetricsUpdate({
+        qualityScore: metrics.qualityScore,
+        changeCount:  changeCountRef.current,
+        histScore:    lastHistScoreRef.current,
+      });
+    }
+
     hist.delete();
     rafRef.current = requestAnimationFrame(processFrame);
   }, [
     cvReady, canvasRef, videoRef, isSendingRef,
-    onFrameChange, onQualityFeedback,
+    onFrameChange, onQualityFeedback, onMetricsUpdate, onBiosOverlay,
+    onBiosVendorDetected, enableBiosVendorOcr,
     cooldownMs, histThreshold, minQualityScore,
   ]);
 
