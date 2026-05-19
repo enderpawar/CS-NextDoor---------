@@ -197,6 +197,8 @@ MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄
 ![Real BIOS Preprocess Comparison](docs/cv-pipeline/real-bios-preprocess-comparison.png)
 
 이 오버레이는 평가용 시각화이면서 실제 앱의 AR 안내 구조와도 연결됩니다. 앱에서는 OpenCV 전처리 결과를 `cvSummary`와 OCR/ROI 후보로 정리해 Gemini에 전달하고, Gemini가 선택한 대상은 `targetId` 또는 `bbox` 형태로 돌아옵니다. 프론트엔드는 이 좌표를 카메라 화면 좌표계에 맞춰 변환한 뒤 사용자가 클릭하거나 조치해야 할 위치를 박스로 표시합니다.
+<img width="1179" height="2556" alt="image" src="https://github.com/user-attachments/assets/30404512-2535-4e12-95e7-b1fb53069e0e" />
+
 
 | 단계 | 전달되는 정보 | 목적 |
 |---|---|---|
