@@ -3774,6 +3774,151 @@ body {
   max-width: 380px;
 }
 
+.nd-guide-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.nd-guide-header strong {
+  color: var(--color-text-primary);
+  font-size: 17px;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+.nd-guide-eyebrow {
+  color: var(--color-text-brand);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.nd-guide-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 16px;
+}
+
+.nd-guide-pipeline-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.nd-guide-pipeline-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100%;
+}
+
+.nd-guide-step-marker {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(90, 129, 250, 0.34);
+  background: rgba(90, 129, 250, 0.10);
+  color: var(--color-brand-active);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.nd-guide-step-marker.is-trying,
+.nd-guide-step-marker.is-checking {
+  background: var(--color-brand);
+  color: #fff;
+  border-color: var(--color-brand);
+  box-shadow: 0 8px 20px rgba(90, 129, 250, 0.22);
+}
+
+.nd-guide-step-marker.is-done {
+  background: var(--color-success);
+  color: #fff;
+  border-color: var(--color-success);
+}
+
+.nd-guide-step-marker.is-failed {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.nd-guide-step-line {
+  width: 2px;
+  flex: 1;
+  min-height: 28px;
+  margin: 8px 0;
+  border-radius: 99px;
+  background: rgba(196, 197, 214, 0.66);
+}
+
+.nd-guide-step-line.is-done,
+.nd-guide-step-line.is-failed {
+  background: rgba(90, 129, 250, 0.36);
+}
+
+.nd-guide-step-card {
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.nd-guide-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.nd-guide-status-pill.is-trying,
+.nd-guide-status-pill.is-checking {
+  background: rgba(90, 129, 250, 0.12);
+  color: var(--color-brand-active);
+}
+
+.nd-guide-status-pill.is-done {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+}
+
+.nd-guide-status-pill.is-failed {
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+}
+
+@media (max-width: 640px) {
+  .nd-guide-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .nd-guide-pipeline-item {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .nd-guide-step-marker {
+    width: 30px;
+    height: 30px;
+  }
+}
+
 /* Full-width AI bubble in chat fullview */
 .nd-chat-feed .nd-bubble.ai {
   max-width: 100%;
@@ -8008,12 +8153,52 @@ body {
 }
 
 @media (max-width: 640px) {
+  .mode-electron .nd-redesign-sidebar {
+    padding-bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mode-electron .nd-redesign-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-fixed);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    margin: 0;
+    padding: 8px 10px max(8px, env(safe-area-inset-bottom, 0px));
+    background: rgba(255, 255, 255, 0.94);
+    border-top: 1px solid var(--nd-dx-border);
+    box-shadow: 0 -12px 28px rgba(30, 46, 78, 0.10);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .mode-electron .nd-redesign-nav-item {
+    min-height: 54px;
+    justify-content: center;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 4px;
+    font-size: 11px;
+    line-height: 1.15;
+    text-align: center;
+  }
+
+  .mode-electron .nd-redesign-nav-icon {
+    width: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .mode-electron .nd-redesign-topbar {
     padding: 12px 16px;
   }
 
   .mode-electron .nd-redesign-content {
-    padding: 18px 14px 28px;
+    padding: 18px 14px calc(112px + env(safe-area-inset-bottom, 0px));
   }
 
   .mode-electron .nd-page-headline {

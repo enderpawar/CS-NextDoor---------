@@ -1,0 +1,23 @@
+filename,screen_id,vendor,angle_deg,lighting,distance,defect_type,label,expected_text,notes
+ami/real-capture/msi_boot_main_front_01.jpg,boot-main,ami,0,normal,normal,none,good,MSI Click BIOS 5 Settings Boot Boot Option,front capture of MSI Click BIOS boot screen
+ami/real-capture/msi_boot_main_front_02.jpg,boot-main,ami,0,normal,normal,none,good,MSI Click BIOS 5 Settings Boot Boot Option,second front capture for repeatability
+ami/real-capture/msi_boot_main_left15_01.jpg,boot-main,ami,15,normal,normal,perspective,good,MSI Click BIOS 5 Settings Boot Boot Option,left perspective stress case
+ami/real-capture/msi_boot_main_right15_01.jpg,boot-main,ami,15,normal,normal,perspective,good,MSI Click BIOS 5 Settings Boot Boot Option,right perspective stress case
+ami/real-capture/msi_boot_main_left30_01.jpg,boot-main,ami,30,normal,normal,perspective,good,MSI Click BIOS 5 Settings Boot Boot Option,strong left perspective stress case
+ami/real-capture/msi_boot_main_right30_01.jpg,boot-main,ami,30,normal,normal,perspective,good,MSI Click BIOS 5 Settings Boot Boot Option,strong right perspective stress case
+ami/real-capture/msi_boot_main_up15_01.jpg,boot-main,ami,15,normal,normal,perspective,good,MSI Click BIOS 5 Settings Boot Boot Option,vertical tilt stress case
+ami/real-capture/msi_boot_main_dark_01.jpg,boot-main,ami,0,dark,normal,dark,bad,MSI Click BIOS 5 Settings Boot Boot Option,low-light quality gate negative
+ami/real-capture/msi_boot_main_glare_01.jpg,boot-main,ami,0,bright,normal,glare,bad,MSI Click BIOS 5 Settings Boot Boot Option,screen reflection quality gate negative
+ami/real-capture/msi_boot_main_blur_01.jpg,boot-main,ami,0,normal,normal,blur,bad,MSI Click BIOS 5 Settings Boot Boot Option,defocused quality gate negative
+ami/real-capture/msi_boot_main_crop_01.jpg,boot-main,ami,0,normal,normal,crop,bad,MSI Click BIOS 5 Settings Boot Boot Option,partial screen crop for corner detection failure case
+ami/real-capture/msi_boot_popup_front_01.jpg,boot-popup,ami,0,normal,normal,none,good,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,front capture of boot option popup
+ami/real-capture/msi_boot_popup_front_02.jpg,boot-popup,ami,0,normal,normal,none,good,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,second popup capture for repeatability
+ami/real-capture/msi_boot_popup_left15_01.jpg,boot-popup,ami,15,normal,normal,perspective,good,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,left perspective popup stress case
+ami/real-capture/msi_boot_popup_right15_01.jpg,boot-popup,ami,15,normal,normal,perspective,good,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,right perspective popup stress case
+ami/real-capture/msi_boot_popup_left30_01.jpg,boot-popup,ami,30,normal,normal,perspective,good,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,strong left popup perspective stress case
+ami/real-capture/msi_boot_popup_right30_01.jpg,boot-popup,ami,30,normal,normal,perspective,good,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,strong right popup perspective stress case
+ami/real-capture/msi_boot_popup_down15_01.jpg,boot-popup,ami,15,normal,normal,perspective,good,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,vertical tilt popup stress case
+ami/real-capture/msi_boot_popup_dark_01.jpg,boot-popup,ami,0,dark,normal,dark,bad,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,low-light popup quality gate negative
+ami/real-capture/msi_boot_popup_bright_01.jpg,boot-popup,ami,0,bright,normal,bright,bad,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,over-bright popup quality gate negative
+ami/real-capture/msi_boot_popup_shake_01.jpg,boot-popup,ami,0,normal,normal,shake,bad,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,handheld shake quality gate negative
+ami/real-capture/msi_boot_popup_far_01.jpg,boot-popup,ami,0,normal,far,far,bad,Boot Option UEFI CD DVD UEFI Hard Disk Windows Boot Manager UEFI USB Disabled,far-distance OCR stress case

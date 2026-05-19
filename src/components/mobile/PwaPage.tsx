@@ -7,10 +7,9 @@
  * 기능 전환은 state 기반 (페이지 이동 없음).
  */
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Camera, Mic, Sparkles, Cpu, PowerOff,
-  Volume2, Monitor, History, User, Home as HomeIcon,
+  Camera, CheckCircle2, History, Mic, ScanLine, Sparkles, User, Home as HomeIcon,
   ArrowRight,
 } from 'lucide-react';
 import type { BiosType, GuideContext } from '../../types';
@@ -37,6 +36,11 @@ const C = {
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 type PwaView = 'onboarding' | 'home' | 'context' | 'live-guide' | 'audio-capture';
+
+interface PwaHistoryState {
+  ndPwaView?: PwaView;
+  ndPwaIndex?: number;
+}
 
 interface Props {
   isStandalone: boolean;
@@ -141,15 +145,17 @@ function FeatureRow({ icon, title, sub }: { icon: React.ReactNode; title: string
   );
 }
 
-function QuickCard({ icon, label, tag, onClick }: { icon: React.ReactNode; label: string; tag: string; onClick?: () => void }) {
+function ReadinessItem({ icon, label, status }: { icon: React.ReactNode; label: string; status: string }) {
   return (
-    <button type="button" onClick={onClick} style={{ padding: 14, borderRadius: 18, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 100, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Pretendard, system-ui' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: C.brandSoft, color: C.brand, display: 'grid', placeItems: 'center' }}>{icon}</div>
-        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 1, color: C.inkFaint, fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace' }}>{tag}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      <div style={{ width: 34, height: 34, borderRadius: 10, background: C.brandSoft, color: C.brand, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+        {icon}
       </div>
-      <div style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: -0.3, lineHeight: 1.3, color: C.ink }}>{label}</div>
-    </button>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: -0.25, color: C.ink }}>{label}</div>
+        <div style={{ marginTop: 2, fontSize: 12, fontWeight: 700, letterSpacing: -0.15, color: C.inkSoft }}>{status}</div>
+      </div>
+    </div>
   );
 }
 
@@ -170,14 +176,115 @@ export default function PwaPage({ isStandalone }: Props) {
   const [symptomText, setSymptomText] = useState('');
   const [initialGuideQuestion, setInitialGuideQuestion] = useState('');
   const [biosType,    setBiosType]   = useState<BiosType | null>(null);
+  const [bottomDockOffset, setBottomDockOffset] = useState(0);
+  const historyIndexRef = useRef(0);
+  const viewRef = useRef<PwaView>(view);
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const viewport = window.visualViewport;
+    const isIosLike = /iPad|iPhone|iPod/.test(window.navigator.userAgent)
+      || (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
+    const minBrowserOffset = !isStandalone && isIosLike ? 22 : 0;
+
+    if (!viewport) {
+      setBottomDockOffset(minBrowserOffset);
+      return;
+    }
+
+    const updateBottomDockOffset = () => {
+      const occludedBottom = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      setBottomDockOffset(Math.round(Math.max(occludedBottom, minBrowserOffset)));
+    };
+
+    updateBottomDockOffset();
+    viewport.addEventListener('resize', updateBottomDockOffset);
+    viewport.addEventListener('scroll', updateBottomDockOffset);
+    window.addEventListener('orientationchange', updateBottomDockOffset);
+
+    return () => {
+      viewport.removeEventListener('resize', updateBottomDockOffset);
+      viewport.removeEventListener('scroll', updateBottomDockOffset);
+      window.removeEventListener('orientationchange', updateBottomDockOffset);
+    };
+  }, [isStandalone]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const state = window.history.state as PwaHistoryState | null;
+    if (!state?.ndPwaView) {
+      window.history.replaceState({ ...(state ?? {}), ndPwaView: view, ndPwaIndex: 0 }, '');
+    } else {
+      historyIndexRef.current = state.ndPwaIndex ?? 0;
+      setView(state.ndPwaView);
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      const nextState = event.state as PwaHistoryState | null;
+      if (viewRef.current === 'live-guide') {
+        const currentIndex = historyIndexRef.current;
+        window.history.pushState({ ndPwaView: 'live-guide', ndPwaIndex: currentIndex }, '');
+        window.dispatchEvent(new CustomEvent('nd-live-guide-back-request'));
+        return;
+      }
+
+      historyIndexRef.current = nextState?.ndPwaIndex ?? 0;
+      setView(nextState?.ndPwaView ?? 'home');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  // 최초 진입 시 현재 PWA 화면을 브라우저 히스토리에 1회만 등록한다.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const navigateTo = useCallback((nextView: PwaView, options?: { replace?: boolean }) => {
+    setView(nextView);
+    viewRef.current = nextView;
+    if (typeof window === 'undefined') return;
+
+    if (options?.replace) {
+      const currentState = window.history.state as PwaHistoryState | null;
+      const index = currentState?.ndPwaIndex ?? historyIndexRef.current;
+      historyIndexRef.current = index;
+      window.history.replaceState({ ...(currentState ?? {}), ndPwaView: nextView, ndPwaIndex: index }, '');
+      return;
+    }
+
+    const nextIndex = historyIndexRef.current + 1;
+    historyIndexRef.current = nextIndex;
+    window.history.pushState({ ndPwaView: nextView, ndPwaIndex: nextIndex }, '');
+  }, []);
+
+  const goBackToHome = useCallback(() => {
+    const currentState = typeof window !== 'undefined'
+      ? (window.history.state as PwaHistoryState | null)
+      : null;
+
+    if (typeof window !== 'undefined' && currentState?.ndPwaView && (currentState.ndPwaIndex ?? 0) > 0) {
+      window.history.back();
+      return;
+    }
+
+    navigateTo('home', { replace: true });
+  }, [navigateTo]);
+
+  const exitToHome = useCallback(() => {
+    navigateTo('home', { replace: true });
+  }, [navigateTo]);
 
   // ── 진단 모드 뷰 ──────────────────────────────────────────────────────────
   if (view === 'live-guide') {
     return (
       <LiveGuideMode
-        isStandalone={isStandalone}
         initialContext={selectedCtx === 'beep' ? 'GENERAL' : selectedCtx}
         initialQuestion={initialGuideQuestion}
+        onExit={exitToHome}
       />
     );
   }
@@ -187,7 +294,7 @@ export default function PwaPage({ isStandalone }: Props) {
       <div style={{ minHeight: '100dvh', background: '#0a0f17', fontFamily: 'Pretendard, system-ui', display: 'flex', flexDirection: 'column' }}>
         <div style={{ height: 54 }}/>
         <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button type="button" onClick={() => setView('home')} aria-label="홈으로" style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: 'rgba(255,255,255,0.10)', color: '#fff', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+          <button type="button" onClick={goBackToHome} aria-label="홈으로" style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: 'rgba(255,255,255,0.10)', color: '#fff', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
           <span style={{ color: 'rgba(255,255,255,0.65)', fontWeight: 700, fontSize: 13, letterSpacing: 0.3 }}>AUDIO CAPTURE</span>
@@ -214,7 +321,7 @@ export default function PwaPage({ isStandalone }: Props) {
 
         {/* 건너뛰기 */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 22px' }}>
-          <button type="button" onClick={() => setView('home')} style={{ background: 'none', border: 'none', fontSize: 14, color: C.inkSoft, fontWeight: 500, cursor: 'pointer', fontFamily: 'Pretendard, system-ui' }}>건너뛰기</button>
+          <button type="button" onClick={() => navigateTo('home')} style={{ background: 'none', border: 'none', fontSize: 14, color: C.inkSoft, fontWeight: 500, cursor: 'pointer', fontFamily: 'Pretendard, system-ui' }}>건너뛰기</button>
         </div>
 
         {/* 히어로 */}
@@ -223,7 +330,7 @@ export default function PwaPage({ isStandalone }: Props) {
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: C.brandSoft, color: C.brand, fontSize: 12.5, fontWeight: 700, letterSpacing: -0.2, marginBottom: 14 }}>
               <Sparkles size={13}/>
-              AI 진단 도우미 · Beta
+              AI 진단 도우미
             </div>
             <h1 style={{ margin: 0, fontSize: 34, lineHeight: 1.22, fontWeight: 800, letterSpacing: -1.4 }}>
               수리기사 부르기 전,<br/>
@@ -240,7 +347,7 @@ export default function PwaPage({ isStandalone }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 'auto', paddingBottom: 180 }}>
             <FeatureRow icon={<Camera size={20}/>}   title="카메라로 PC 화면 진단"    sub="BIOS · 에러 메시지 · 부팅 화면"/>
             <FeatureRow icon={<Mic size={20}/>}      title="비프음으로 하드웨어 진단" sub="삐 — 삐삐 패턴을 인식해요"/>
-            <FeatureRow icon={<Sparkles size={20}/>} title="Gemini가 원인을 추론해요" sub="OpenCV가 먼저 걸러 더 정확하게"/>
+            <FeatureRow icon={<Sparkles size={20}/>} title="증상 단서를 모아 안내해요" sub="처음 보는 화면도 단계별로 확인"/>
           </div>
         </div>
 
@@ -249,7 +356,7 @@ export default function PwaPage({ isStandalone }: Props) {
           <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
             <ProgressDot active/><ProgressDot/><ProgressDot/>
           </div>
-          <PillBtn full onClick={() => setView('home')}>시작하기 <ArrowRight size={18}/></PillBtn>
+          <PillBtn full onClick={() => navigateTo('home')}>시작하기 <ArrowRight size={18}/></PillBtn>
           <div style={{ textAlign: 'center', fontSize: 13.5, color: C.inkSoft, paddingBottom: 8 }}>
             이미 사용 중이신가요?{' '}
             <span style={{ color: C.brand, fontWeight: 700 }}>로그인</span>
@@ -265,7 +372,7 @@ export default function PwaPage({ isStandalone }: Props) {
       const trimmed = symptomText.trim();
       setSelectedCtx(inferGuideContextFromText(trimmed));
       setInitialGuideQuestion(trimmed);
-      setView('live-guide');
+      navigateTo('live-guide', { replace: true });
     };
 
     return (
@@ -274,7 +381,7 @@ export default function PwaPage({ isStandalone }: Props) {
 
         {/* 네비 */}
         <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <button type="button" onClick={() => setView('home')} style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+          <button type="button" onClick={goBackToHome} style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke={C.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
           <span style={{ fontSize: 12.5, fontWeight: 700, color: C.inkFaint, letterSpacing: 0.3 }}>1 / 3</span>
@@ -346,7 +453,7 @@ export default function PwaPage({ isStandalone }: Props) {
         {/* 하단 CTA */}
         <div style={{ padding: `12px 22px max(env(safe-area-inset-bottom,0px),30px)`, background: C.bg, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); setView('live-guide'); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
+            <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('live-guide', { replace: true }); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
               ✨ 입력 없이 화면부터 보기
             </button>
           </div>
@@ -360,7 +467,7 @@ export default function PwaPage({ isStandalone }: Props) {
 
   // ── Screen 02: 홈 ────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column', paddingBottom: `calc(82px + env(safe-area-inset-bottom, 0px) + ${bottomDockOffset}px)` }}>
       <div style={{ height: 54 }}/>
 
       {/* 탑바 */}
@@ -371,7 +478,6 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', position: 'relative', color: C.inkSoft }}>
           <History size={20}/>
-          <span style={{ position: 'absolute', top: 7, right: 8, width: 7, height: 7, borderRadius: '50%', background: C.brand }}/>
         </div>
       </div>
 
@@ -383,40 +489,54 @@ export default function PwaPage({ isStandalone }: Props) {
         </h1>
       </div>
 
-      {/* 히어로 CTA 카드 */}
+      {/* 메인 CTA 카드 */}
       <div style={{ padding: '12px 22px 0' }}>
-        <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); setView('context'); }} style={{ width: '100%', borderRadius: 24, padding: 18, position: 'relative', overflow: 'hidden', background: `linear-gradient(140deg, ${C.brand} 0%, ${C.brandDeep} 100%)`, color: '#fff', boxShadow: `0 16px 30px -16px ${C.brand}aa`, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Pretendard, system-ui' }}>
+        <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('live-guide'); }} style={{ width: '100%', borderRadius: 24, padding: 18, position: 'relative', overflow: 'hidden', background: `linear-gradient(140deg, ${C.brand} 0%, ${C.brandDeep} 100%)`, color: '#fff', boxShadow: `0 16px 30px -16px ${C.brand}aa`, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Pretendard, system-ui' }}>
           {/* 데코 링 */}
           <div style={{ position: 'absolute', right: -50, top: -50, width: 180, height: 180, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.22)', pointerEvents: 'none' }}/>
           <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.16)', pointerEvents: 'none' }}/>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, opacity: 0.85, letterSpacing: 0.4 }}>
             <Sparkles size={12}/>
-            LIVE GUIDE
+            화면 단서 분석
           </div>
           <div style={{ fontSize: 22, fontWeight: 800, marginTop: 8, letterSpacing: -0.8 }}>
-            카메라로 PC 화면<br/>비춰서 시작하기
+            PC 화면을 비추면<br/>바로 분석해요
           </div>
           <div style={{ fontSize: 13, opacity: 0.85, marginTop: 6, letterSpacing: -0.2, fontWeight: 500 }}>
-            평균 12초 안에 원인을 찾아드려요
+            오류 문구, 부팅 화면, 검은 화면 단서를 카메라로 확인합니다
           </div>
           <div style={{ marginTop: 14, height: 44, borderRadius: 22, background: 'rgba(255,255,255,0.96)', color: C.brand, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>
             <Camera size={18}/>
             진단 시작하기
           </div>
         </button>
+        <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('context'); }} style={{ width: '100%', height: 48, marginTop: 10, borderRadius: 24, border: 'none', background: C.surface, color: C.brand, boxShadow: `inset 0 0 0 1.5px ${C.line}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>
+          증상부터 입력하기
+          <ArrowRight size={17}/>
+        </button>
       </div>
 
-      {/* 빠른 진단 2×2 */}
+      {/* 진단 준비 상태 */}
       <div style={{ padding: '20px 22px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.4 }}>빠른 진단</div>
-          <span style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>전체보기</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <QuickCard icon={<PowerOff size={20}/>} label="부팅이 안돼요"    tag="POWER"   onClick={() => { setInitialGuideQuestion(''); setSelectedCtx('NO_BOOT'); setView('live-guide'); }}/>
-          <QuickCard icon={<Cpu size={20}/>}      label="BIOS 화면이에요"  tag="BIOS"    onClick={() => { setInitialGuideQuestion(''); setSelectedCtx('BIOS_BOOT'); setView('live-guide'); }}/>
-          <QuickCard icon={<Volume2 size={20}/>}  label="비프음이 나요"    tag="AUDIO"   onClick={() => setView('audio-capture')}/>
-          <QuickCard icon={<Monitor size={20}/>}  label="화면이 깨져요"    tag="DISPLAY" onClick={() => { setInitialGuideQuestion(''); setSelectedCtx('SLOW_PC'); setView('live-guide'); }}/>
+        <div style={{ padding: 16, borderRadius: 20, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.4 }}>화면 진단 준비됨</div>
+              <p style={{ margin: '5px 0 0', fontSize: 12.8, lineHeight: 1.45, color: C.inkSoft, fontWeight: 600, letterSpacing: -0.2 }}>
+                카메라로 오류 문구와 화면 단서를 확인할 수 있어요.
+              </p>
+            </div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 8px', borderRadius: 999, background: '#e8f5ee', color: C.ok, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
+              <CheckCircle2 size={13}/>
+              시작 가능
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <ReadinessItem icon={<Camera size={17}/>} label="카메라" status="화면 단서 확인"/>
+            <ReadinessItem icon={<ScanLine size={17}/>} label="화면 읽기" status="문구·메뉴 확인"/>
+            <ReadinessItem icon={<Mic size={17}/>} label="마이크" status="비프음 선택 진단"/>
+            <ReadinessItem icon={<Sparkles size={17}/>} label="해결 안내" status="단계별 진행"/>
+          </div>
         </div>
       </div>
 
@@ -424,19 +544,16 @@ export default function PwaPage({ isStandalone }: Props) {
       <div style={{ padding: '18px 22px 0' }}>
         <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.4, marginBottom: 10 }}>최근 진단</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: C.brandSoft, color: C.brand, display: 'grid', placeItems: 'center' }}><Cpu size={20}/></div>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: C.brandSoft, color: C.brand, display: 'grid', placeItems: 'center', flexShrink: 0 }}><History size={20}/></div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: -0.3 }}>BIOS Boot Order 변경</div>
-            <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>어제 · 2분만에 해결</div>
+            <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: -0.3 }}>최근 진단 없음</div>
+            <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>진단을 시작하면 여기에서 다시 확인할 수 있어요.</div>
           </div>
-          <div style={{ padding: '4px 8px', borderRadius: 6, background: '#e8f5ee', color: C.ok, fontSize: 11, fontWeight: 800 }}>해결</div>
         </div>
       </div>
 
-      <div style={{ flex: 1 }}/>
-
       {/* 탭 바 */}
-      <div style={{ padding: `8px 16px max(env(safe-area-inset-bottom,0px),16px)`, background: C.surface, borderTop: `1px solid ${C.line}`, display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: bottomDockOffset, zIndex: 50, padding: `8px 16px max(env(safe-area-inset-bottom,0px),16px)`, background: 'rgba(255,255,255,0.96)', borderTop: `1px solid ${C.line}`, boxShadow: '0 -12px 28px -24px rgba(15, 23, 42, 0.55)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
         <TabItem icon={<HomeIcon size={22}/>} label="홈"       active/>
         <TabItem icon={<History size={22}/>}  label="히스토리"/>
         <TabItem icon={<User size={22}/>}     label="내 기기"/>

@@ -23,12 +23,14 @@ import { useGeminiLiveGuide }                from '../../hooks/useGeminiLiveGuid
 import { useLiveFrameCapture }               from '../../hooks/useLiveFrameCapture';
 import type { BiosArOverlay, CvFrameInsightMetrics } from '../../hooks/useLiveFrameCapture';
 import GuideContextSelector                  from './GuideContextSelector';
+import GoalInputSheet                        from './GoalInputSheet';
 import GuideBubble                           from './GuideBubble';
 import ShootingGuide                         from './ShootingGuide';
 import CvInsightPanel                        from './CvInsightPanel';
 import BiosTypeSelector                      from './BiosTypeSelector';
 import AudioCapture                          from './AudioCapture';
-import type { GuideContext, BiosType, GuideOcrRegion } from '../../types';
+import type { GuideArTarget, GuideContext, BiosType, GuideOcrRegion } from '../../types';
+import { isHwRepairContext } from '../../types';
 import { compareHist }                       from '../../lib/cv/changeDetection';
 import {
   detectBiosVendor,
@@ -46,17 +48,11 @@ const STATIC_FIRST_GUIDE: Record<GuideContext, string> = {
   NETWORK_ISSUE:   'Wi-Fi 아이콘, 네트워크 설정 화면, 공유기 상태 등 보이는 단서를 비춰주세요.',
   BLUE_SCREEN:     '블루스크린의 중지 코드나 오류 메시지가 보이도록 화면을 비춰주세요.',
   BIOS_BOOT:       'BIOS, 부팅 메뉴, Windows 설치 화면을 비춰주세요. 현재 위치에 맞춰 다음 조작을 안내할게요.',
+  HW_REPAIR_RAM:   'PC 케이스를 연 뒤 메인보드의 RAM 슬롯이 보이도록 비춰주세요. 어떤 메모리를 어떻게 빼고 다시 꽂아야 하는지 안내할게요.',
+  HW_REPAIR_GPU:   'PC 케이스를 연 뒤 그래픽카드(GPU)와 PCIe 슬롯이 보이도록 비춰주세요. 분리·재장착 순서를 단계별로 안내할게요.',
 };
 
-const CONTEXT_LABELS: Record<GuideContext, string> = {
-  GENERAL:         '자동 진단',
-  NO_BOOT:         '부팅 안 됨',
-  SLOW_PC:         '느려짐·멈춤',
-  APP_NOT_OPENING: '실행 안 됨',
-  NETWORK_ISSUE:   '인터넷 문제',
-  BLUE_SCREEN:     '블루스크린',
-  BIOS_BOOT:       'BIOS·부팅',
-};
+const SHOW_CC_DEBUG_REGIONS = false;
 
 type PageState = 'camera' | 'done';
 type ActionResult = 'none' | 'tried' | 'unresolved';
@@ -68,9 +64,9 @@ interface FrozenFrame {
 }
 
 interface Props {
-  isStandalone?: boolean;
   initialContext?: GuideContext;
   initialQuestion?: string;
+  onExit?: () => void;
 }
 
 /** cvSummary 문자열에서 bios 메트릭 파싱 */
@@ -82,15 +78,213 @@ function parseBiosFromSummary(cvSummary: string) {
   };
 }
 
-export default function LiveGuideMode({ isStandalone = false, initialContext = 'GENERAL', initialQuestion = '' }: Props) {
+function smoothQuadCorners(
+  previous: number[][] | null,
+  next: number[][] | null,
+  alpha = 0.35,
+): number[][] | null {
+  if (!next) return null;
+  if (!previous || previous.length !== next.length) return next;
+
+  return next.map((point, index) => {
+    const prevPoint = previous[index];
+    if (!prevPoint) return point;
+    return [
+      (prevPoint[0] ?? 0) * (1 - alpha) + (point[0] ?? 0) * alpha,
+      (prevPoint[1] ?? 0) * (1 - alpha) + (point[1] ?? 0) * alpha,
+    ];
+  });
+}
+
+function normalizeTargetText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}# ]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scoreOcrRegionForCurrentStep(
+  region: GuideOcrRegion,
+  guideText: string,
+  taskGoal: string,
+  context: GuideContext,
+): number {
+  const regionText = normalizeTargetText(region.text);
+  if (regionText.length < 2) return 0;
+
+  const currentText = normalizeTargetText(`${guideText} ${taskGoal}`);
+  let score = 0;
+
+  if (currentText && currentText.includes(regionText) && regionText.length >= 4) {
+    score += 80 + Math.min(regionText.length, 30);
+  }
+
+  for (const token of regionText.split(' ')) {
+    if (token.length >= 4 && currentText.includes(token)) score += 18;
+  }
+
+  const actionKeywords = [
+    'boot', 'secure', 'usb', 'save', 'exit', 'install', 'setup', 'advanced',
+    'option', 'priority', 'windows', 'yes', 'ok', 'f10', 'del', 'enabled', 'disabled',
+  ];
+  for (const keyword of actionKeywords) {
+    if (regionText.includes(keyword)) score += context === 'BIOS_BOOT' ? 14 : 6;
+    if (currentText.includes(keyword) && regionText.includes(keyword)) score += 20;
+  }
+
+  score += Math.min(region.confidence * 10, 10);
+  if (region.bbox.w < 12 || region.bbox.h < 8) score -= 20;
+  if (regionText.length > 48) score -= 8;
+
+  return score;
+}
+
+function pickFallbackOcrTarget(
+  regions: GuideOcrRegion[],
+  guideText: string,
+  taskGoal: string,
+  context: GuideContext,
+): GuideOcrRegion | null {
+  let best: { region: GuideOcrRegion; score: number } | null = null;
+  for (const region of regions) {
+    const score = scoreOcrRegionForCurrentStep(region, guideText, taskGoal, context);
+    if (!best || score > best.score) best = { region, score };
+  }
+  if (!best) return null;
+  if (best.score >= 18) return best.region;
+  if (context === 'BIOS_BOOT' && regions.length > 0 && (guideText || taskGoal)) return best.region;
+  return null;
+}
+
+function pickOcrTargetByArHint(
+  regions: GuideOcrRegion[],
+  label: string | undefined,
+  reason: string | undefined,
+  guideText: string,
+  taskGoal: string,
+  context: GuideContext,
+): GuideOcrRegion | null {
+  const hint = [label, reason, guideText, taskGoal].filter(Boolean).join(' ');
+  return pickFallbackOcrTarget(regions, hint, taskGoal, context);
+}
+
+function textRegionToArTarget(region: BiosTextRegion | undefined): GuideOcrRegion | null {
+  if (!region) return null;
+  const xs = region.points.map(point => point[0] ?? 0);
+  const ys = region.points.map(point => point[1] ?? 0);
+  const x0 = Math.min(...xs);
+  const y0 = Math.min(...ys);
+  const x1 = Math.max(...xs);
+  const y1 = Math.max(...ys);
+  const w = x1 - x0;
+  const h = y1 - y0;
+  if (w < 12 || h < 8) return null;
+  if (w * h > 70_000) return null;
+
+  return {
+    id: `cc-${region.id}`,
+    text: '',
+    confidence: 0,
+    bbox: { x: x0, y: y0, w, h },
+    points: region.points,
+  };
+}
+
+function arTargetBboxToRegion(
+  target: GuideArTarget,
+  videoSize: { w: number; h: number } | null,
+): GuideOcrRegion | null {
+  if (!videoSize || !target.bbox) return null;
+  const { bbox } = target;
+  const unit = bbox.unit ?? 'normalized1000';
+  const scaleX = unit === 'pixel' ? 1 : unit === 'normalized01' ? videoSize.w : videoSize.w / 1000;
+  const scaleY = unit === 'pixel' ? 1 : unit === 'normalized01' ? videoSize.h : videoSize.h / 1000;
+  const x0 = clampValue(bbox.x * scaleX, 0, videoSize.w);
+  const y0 = clampValue(bbox.y * scaleY, 0, videoSize.h);
+  const x1 = clampValue((bbox.x + bbox.w) * scaleX, 0, videoSize.w);
+  const y1 = clampValue((bbox.y + bbox.h) * scaleY, 0, videoSize.h);
+  const w = x1 - x0;
+  const h = y1 - y0;
+  if (w < 8 || h < 8) return null;
+
+  return {
+    id: target.targetId ?? 'gemini-vision-bbox',
+    text: '',
+    confidence: 1,
+    bbox: { x: x0, y: y0, w, h },
+    points: [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1],
+      [x0, y1],
+    ],
+  };
+}
+
+function clampValue(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function makeClickableTargetRegion(
+  region: GuideOcrRegion,
+  videoSize: { w: number; h: number } | null,
+  mode: 'vision' | 'fallback' = 'fallback',
+): GuideOcrRegion {
+  if (!videoSize) return region;
+
+  const isShortAction = /^(ok|yes|no|esc|del|f(?:1[0-2]|[1-9]))$/i.test(region.text.trim());
+  const padX = mode === 'vision'
+    ? Math.max(4, region.bbox.w * 0.04)
+    : Math.max(isShortAction ? 30 : 18, region.bbox.w * 0.22);
+  const padY = mode === 'vision'
+    ? Math.max(3, region.bbox.h * 0.12)
+    : Math.max(isShortAction ? 16 : 10, region.bbox.h * 0.72);
+  const x0 = clampValue(region.bbox.x - padX, 0, videoSize.w);
+  const y0 = clampValue(region.bbox.y - padY, 0, videoSize.h);
+  const x1 = clampValue(region.bbox.x + region.bbox.w + padX, 0, videoSize.w);
+  const y1 = clampValue(region.bbox.y + region.bbox.h + padY, 0, videoSize.h);
+  const w = Math.max(1, x1 - x0);
+  const h = Math.max(1, y1 - y0);
+
+  return {
+    ...region,
+    bbox: { x: x0, y: y0, w, h },
+    points: [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1],
+      [x0, y1],
+    ],
+  };
+}
+
+function getTargetLabelPosition(
+  target: GuideOcrRegion,
+  videoSize: { w: number; h: number },
+  labelWidth: number,
+) {
+  const aboveY = target.bbox.y - 42;
+  const belowY = target.bbox.y + target.bbox.h + 10;
+  const y = aboveY >= 0 ? aboveY : Math.min(videoSize.h - 32, belowY);
+  const x = clampValue(target.bbox.x, 4, Math.max(4, videoSize.w - labelWidth - 4));
+  return { x, y };
+}
+
+export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuestion = '', onExit }: Props) {
   const [page,              setPage]             = useState<PageState>('camera');
   const [context,           setContext]          = useState<GuideContext>(initialContext);
   const [showShootingGuide, setShowShootingGuide] = useState(true);
   const [contextSheetOpen,  setContextSheetOpen] = useState(false);
+  const [goalSheetOpen,     setGoalSheetOpen]    = useState(false);
+  const [taskGoal,          setTaskGoalState]    = useState(initialQuestion.trim());
   const [qualityText,       setQualityText]      = useState('');
   const [streamError,       setStreamError]      = useState('');
   const [resolutionStep,    setResolutionStep]   = useState<'idle' | 'action-done' | 'hidden'>('hidden');
   const [questionDraft,     setQuestionDraft]    = useState(initialQuestion);
+  const [exitConfirmOpen,   setExitConfirmOpen]  = useState(false);
+  const [hwSafetyAck,       setHwSafetyAck]      = useState(false);  // HW 조치 안전 모달 1회 동의
+  const [hwSafetyModalOpen, setHwSafetyModalOpen] = useState(false);
 
   // CV Insight 패널 상태 (Task 3)
   const [cvPanelOpen,   setCvPanelOpen]   = useState(false);
@@ -106,7 +300,7 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
   const [autoVendorChip, setAutoVendorChip] = useState<BiosType | null>(null);
   const vendorDetectedRef = useRef(false);  // 세션 내 1회만 감지
 
-  // Task 7 — AR 오버레이 (모듈 1 Hough 검출 4 모서리)
+  // Task 7 — AR 오버레이 (Hough 모서리 + CC 텍스트 후보 + Gemini OCR 타깃)
   const [biosCorners,   setBiosCorners]   = useState<number[][] | null>(null);
   const [biosTextRegions, setBiosTextRegions] = useState<BiosTextRegion[]>([]);
   const [biosOcrRegions, setBiosOcrRegions] = useState<GuideOcrRegion[]>([]);
@@ -118,10 +312,20 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
   const fileInputRef          = useRef<HTMLInputElement>(null);
   const isSwitchingContextRef = useRef(false);
   const cameraStartingRef     = useRef(false);
+  const smoothedCornersRef    = useRef<number[][] | null>(null);
+  const overlaySizeRef        = useRef<{ w: number; h: number } | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const capturedHistRef = useRef<any>(null);
   const initialQuestionRef = useRef(initialQuestion.trim());
   const taskGoalRef = useRef(initialQuestion.trim());
+
+  /** taskGoal state + ref를 함께 갱신 — 비동기 콜백은 ref.current를, 렌더링은 state를 사용 */
+  const setTaskGoal = useCallback((value: string) => {
+    const trimmed = value.trim();
+    taskGoalRef.current = trimmed;
+    setTaskGoalState(trimmed);
+  }, []);
+
   const lastActionResultRef = useRef<ActionResult>('none');
   const pendingGalleryFrameRef = useRef<{
     base64: string;
@@ -140,6 +344,8 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     setBiosTextRegions([]);
     setBiosOcrRegions([]);
     setBiosVideoSize(null);
+    smoothedCornersRef.current = null;
+    overlaySizeRef.current = null;
     guide.setArTarget(null);
   }, [guide.setArTarget]);
 
@@ -171,14 +377,21 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     setCvMetrics(m);
   }, []);
 
-  // ── Task 7: AR 오버레이 — Hough 검출 모서리 수신 ────────────────────────────
+  // ── Task 7: AR 오버레이 — Hough 모서리 EMA 스무딩 + CC 텍스트 후보 수신 ──
   const handleBiosOverlay = useCallback(
     ({ corners, textRegions, videoW, videoH }: BiosArOverlay) => {
-      setBiosCorners(corners);
-      setBiosTextRegions(textRegions);
+      const previousSize = overlaySizeRef.current;
+      const sizeChanged = !previousSize || previousSize.w !== videoW || previousSize.h !== videoH;
+      const smoothedCorners = frozenFrame
+        ? corners
+        : smoothQuadCorners(sizeChanged ? null : smoothedCornersRef.current, corners);
+      overlaySizeRef.current = { w: videoW, h: videoH };
+      smoothedCornersRef.current = smoothedCorners;
+      setBiosCorners(smoothedCorners);
       setBiosVideoSize({ w: videoW, h: videoH });
+      setBiosTextRegions(textRegions);
     },
-    [],
+    [frozenFrame],
   );
 
   const handleBiosTypeSelect = useCallback((type: BiosType) => {
@@ -238,7 +451,7 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
       const rgba = ctx.getImageData(0, 0, offCanvas.width, offCanvas.height);
       let base64 = offCanvas.toDataURL('image/jpeg', 0.85).split(',')[1] ?? '';
       const initialQuestionForFrame = !guide.streamText ? initialQuestionRef.current : '';
-      if (initialQuestionForFrame && !taskGoalRef.current) taskGoalRef.current = initialQuestionForFrame;
+      if (initialQuestionForFrame && !taskGoalRef.current) setTaskGoal(initialQuestionForFrame);
       let cvSummary = [
         'galleryUpload=true',
         initialQuestionForFrame ? 'userQuestion=true' : 'userQuestion=false',
@@ -250,7 +463,6 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
       if (cvReady) {
         try {
           const preprocessed = preprocessBiosFrameForGuide(rgba);
-          base64    = preprocessed.canvas.toDataURL('image/jpeg', 0.85).split(',')[1] ?? base64;
           cvSummary = [
             cvSummary,
             `biosRectified=${preprocessed.rectified}`,
@@ -325,7 +537,7 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
         }
       }
     },
-    [cvReady, guide, context, handleBiosOverlay, applyDetectedVendor],
+    [cvReady, guide, context, handleBiosOverlay, applyDetectedVendor, setTaskGoal],
   );
 
   // ── 수동 프레임 캡처 ("다음 단계" 버튼) ──────────────────────────────────
@@ -333,8 +545,8 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     const shouldUseInitialQuestion = !userQuestion?.trim() && !guide.streamText && !!initialQuestionRef.current;
     const question = userQuestion?.trim() || (shouldUseInitialQuestion ? initialQuestionRef.current : '');
     const actionResult = actionResultOverride ?? lastActionResultRef.current;
-    const taskGoal = taskGoalRef.current || question;
-    if (taskGoal && !taskGoalRef.current) taskGoalRef.current = taskGoal;
+    const effectiveGoal = taskGoalRef.current || question;
+    if (effectiveGoal && !taskGoalRef.current) setTaskGoal(effectiveGoal);
     if (guide.isSendingRef.current || guide.session?.status !== 'ACTIVE') return;
     if (guide.streamText && resolutionStep === 'idle' && !question) {
       setQualityText('먼저 안내한 조치를 해본 뒤 결과를 선택해주세요.');
@@ -356,7 +568,7 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
       ].join(', ');
       setQualityText('');
       try {
-        await guide.sendFrame(base64, null, cvSummary, biosOcrRegions, question, taskGoal || undefined);
+        await guide.sendFrame(base64, null, cvSummary, biosOcrRegions, question, effectiveGoal || undefined);
         if (shouldUseInitialQuestion) initialQuestionRef.current = '';
         lastActionResultRef.current = 'none';
       } catch {
@@ -397,15 +609,17 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     try {
       if (!cvReady) throw new Error('cv not ready');
       const preprocessed = preprocessBiosFrameForGuide(rgba);
-      base64 = preprocessed.canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? base64;
       setBiosInsight({
         rectified: preprocessed.rectified,
         textRegions: preprocessed.textRegionCount,
         processMs: Math.round(preprocessed.processingMs),
       });
-      setBiosCorners(preprocessed.corners);
-      setBiosTextRegions(preprocessed.textRegions);
-      setBiosVideoSize({ w: canvas.width, h: canvas.height });
+      handleBiosOverlay({
+        corners: preprocessed.corners,
+        textRegions: preprocessed.textRegions,
+        videoW: canvas.width,
+        videoH: canvas.height,
+      });
       cvSummary = [
         cvSummary,
         `biosRectified=${preprocessed.rectified}`,
@@ -441,14 +655,15 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
         ) {
           applyDetectedVendor(ocrResult.detectedVendor);
         }
-      } catch {
+      } catch (err) {
+        console.warn('[liveGuide] OCR pipeline failed:', err);
         setBiosOcrRegions([]);
       }
     }
 
     try {
       setQualityText('');
-      await guide.sendFrame(base64, null, cvSummary, ocrRegions, question || undefined, taskGoal || undefined);
+      await guide.sendFrame(base64, null, cvSummary, ocrRegions, question || undefined, effectiveGoal || undefined);
       if (shouldUseInitialQuestion) initialQuestionRef.current = '';
       lastActionResultRef.current = 'none';
     } catch {
@@ -461,9 +676,11 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     cvReady,
     biosTypeSource,
     applyDetectedVendor,
+    handleBiosOverlay,
     resolutionStep,
     frozenFrame,
     biosOcrRegions,
+    setTaskGoal,
   ]);
 
   const handleQuestionSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
@@ -484,7 +701,8 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     onMetricsUpdate:  handleMetricsUpdate,
     onBiosOverlay:    handleBiosOverlay,
     onBiosVendorDetected: applyDetectedVendor,
-    enableBiosVendorOcr:  biosTypeSource !== 'manual' && !vendorDetectedRef.current,
+    enableBiosVendorOcr:  !isHwRepairContext(context) && biosTypeSource !== 'manual' && !vendorDetectedRef.current,
+    enableBiosPreprocess: !isHwRepairContext(context),
     enableAutoFrameSend:  false,
   });
 
@@ -547,12 +765,14 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
       .catch(() => {});
   }, [guide.session?.status, guide]);
 
-  // 컨텍스트 변경 시 vendor 감지 + AR 오버레이 상태 초기화
+  // 컨텍스트 변경 시 vendor 감지 + AR 오버레이 + HW 안전 동의 상태 초기화
   useEffect(() => {
     vendorDetectedRef.current = false;
     setAutoVendorChip(null);
     setBiosType(null);
     setBiosTypeSource(null);
+    setHwSafetyAck(false);
+    setHwSafetyModalOpen(false);
     clearFrozenGuideState();
   }, [context, clearFrozenGuideState]);
 
@@ -599,6 +819,27 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     };
   }, [startCamera, stopCamera]);
 
+  // ── 마운트 시 목표가 비어 있으면 목표 시트 자동 오픈 ─────────────────────
+  // (Camera-First 흐름: 카메라/촬영 가이드 위에 시트가 모달로 떠 사용자 목표 수집)
+  useEffect(() => {
+    if (!taskGoalRef.current) setGoalSheetOpen(true);
+    // 마운트 시 1회만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── 목표 시트 핸들러 (확정/시트 열기는 의존성 없음, skip은 handleAutoDiagnosisClick에 의존) ──
+  const handleGoalConfirm = useCallback((goal: string) => {
+    setTaskGoal(goal);
+    setGoalSheetOpen(false);
+    setQualityText('');
+    setStreamError('');
+    // 진행 중인 응답이 있으면 새 목표로 다음 캡처에 반영. 현재 세션은 유지.
+  }, [setTaskGoal]);
+
+  const openGoalSheet = useCallback(() => {
+    setGoalSheetOpen(true);
+  }, []);
+
   // ── 세션 DONE 전환 감지 — 사용자 종료/해결 확인 시에만 도달 ─────────────
   useEffect(() => {
     if (guide.session?.status === 'DONE') {
@@ -614,6 +855,23 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
 
   // ── ShootingGuide 오버레이 닫힘 → 가이드 세션 시작 ──────────────────────
   const handleGuideStart = useCallback(async () => {
+    // HW 조치 모드 + 미동의 시 안전 모달 먼저 노출. 동의 후 다시 호출됨.
+    if (isHwRepairContext(context) && !hwSafetyAck) {
+      setHwSafetyModalOpen(true);
+      return;
+    }
+    setShowShootingGuide(false);
+    setStreamError('');
+    try {
+      await guide.startSession(context);
+    } catch {
+      setStreamError('가이드 세션 시작에 실패했어요. 잠시 후 다시 시도해주세요.');
+    }
+  }, [context, guide, hwSafetyAck]);
+
+  const handleHwSafetyConfirm = useCallback(async () => {
+    setHwSafetyAck(true);
+    setHwSafetyModalOpen(false);
     setShowShootingGuide(false);
     setStreamError('');
     try {
@@ -629,20 +887,61 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     setContextSheetOpen(false);
     setQuestionDraft('');
     clearFrozenGuideState();
-    taskGoalRef.current = '';
+    setTaskGoal('');
     lastActionResultRef.current = 'none';
     if (guide.session) {
       isSwitchingContextRef.current = true;
       guide.endSession();
     }
     // 모드 전환 시 촬영 가이드 재표시 제거 — 이미 한 번 본 사용자에게 불필요
-  }, [guide]);
+  }, [guide, setTaskGoal, clearFrozenGuideState]);
 
-  // ── 수동 종료 ────────────────────────────────────────────────────────────
-  const handleEnd = useCallback(() => {
+  // ── 자동 진단 진입 (목표 시트의 "잘 모르겠어요" 버튼) ─────────────────────
+  const handleAutoDiagnosisClick = useCallback(async () => {
+    setContextSheetOpen(false);
+    setGoalSheetOpen(false);
+    setTaskGoal('');
+
+    if (context === 'GENERAL' && guide.session?.status === 'ACTIVE') {
+      setQualityText('자동 진단 모드로 화면 단서를 확인하고 있어요.');
+      return;
+    }
+
+    setContext('GENERAL');
+    setQuestionDraft('');
+    setQualityText('');
+    setStreamError('');
+    clearFrozenGuideState();
+    lastActionResultRef.current = 'none';
+
+    if (guide.session) {
+      isSwitchingContextRef.current = true;
+      guide.endSession();
+    }
+
+    if (!showShootingGuide) {
+      try {
+        await guide.startSession('GENERAL');
+      } catch {
+        setStreamError('자동 진단 세션을 시작할 수 없어요. 잠시 후 다시 시도해주세요.');
+      }
+    }
+  }, [context, guide, showShootingGuide, clearFrozenGuideState, setTaskGoal]);
+
+  // ── 목표 시트의 "잘 모르겠어요" → 자동 진단 폴백 (handleAutoDiagnosisClick 선언 이후 정의) ──
+  const handleGoalSkip = useCallback(() => {
+    setGoalSheetOpen(false);
+    void handleAutoDiagnosisClick();
+  }, [handleAutoDiagnosisClick]);
+
+  const exitToParent = useCallback(() => {
     guide.endSession();
     stopCamera();
-    setPage('done');
+    if (onExit) {
+      onExit();
+    } else {
+      setPage('done');
+    }
     setQualityText('');
     setStreamError('');
     setQuestionDraft('');
@@ -650,7 +949,40 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     lastActionResultRef.current = 'none';
     capturedHistRef.current?.delete();
     capturedHistRef.current = null;
-  }, [guide, stopCamera, clearFrozenGuideState]);
+  }, [guide, stopCamera, clearFrozenGuideState, onExit]);
+
+  const shouldConfirmExit = useCallback(() => {
+    return !showShootingGuide && guide.session?.status === 'ACTIVE';
+  }, [guide.session?.status, showShootingGuide]);
+
+  // ── 수동 종료 ────────────────────────────────────────────────────────────
+  const handleEnd = useCallback(() => {
+    if (shouldConfirmExit()) {
+      setExitConfirmOpen(true);
+      return;
+    }
+
+    exitToParent();
+  }, [exitToParent, shouldConfirmExit]);
+
+  const handleConfirmExit = useCallback(() => {
+    setExitConfirmOpen(false);
+    exitToParent();
+  }, [exitToParent]);
+
+  useEffect(() => {
+    const handleBackRequest = () => {
+      if (shouldConfirmExit()) {
+        setExitConfirmOpen(true);
+        return;
+      }
+
+      exitToParent();
+    };
+
+    window.addEventListener('nd-live-guide-back-request', handleBackRequest);
+    return () => window.removeEventListener('nd-live-guide-back-request', handleBackRequest);
+  }, [exitToParent, shouldConfirmExit]);
 
   const handleResolvedByUser = useCallback(() => {
     guide.endSession();
@@ -684,12 +1016,14 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
     setStreamError('');
     setQuestionDraft('');
     clearFrozenGuideState();
-    taskGoalRef.current = initialQuestion.trim();
+    setTaskGoal(initialQuestion.trim());
     lastActionResultRef.current = 'none';
     capturedHistRef.current?.delete();
     capturedHistRef.current = null;
     // startCamera는 page='camera' 렌더 후 아래 useEffect가 처리
-  }, [initialContext, initialQuestion, clearFrozenGuideState]);
+    // 목표가 비어 있으면 시트 자동 오픈
+    if (!initialQuestion.trim()) setGoalSheetOpen(true);
+  }, [initialContext, initialQuestion, clearFrozenGuideState, setTaskGoal]);
 
   // page='camera'로 전환 시 카메라 재시작 (handleRestart 경로)
   useEffect(() => {
@@ -716,6 +1050,11 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
             <button type="button" className="nd-guide-primary-btn" onClick={handleRestart}>
               다시 시작
             </button>
+            {onExit && (
+              <button type="button" className="nd-guide-secondary-btn" onClick={onExit}>
+                홈으로
+              </button>
+            )}
             <button
               type="button"
               className="nd-guide-text-btn"
@@ -723,8 +1062,10 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
                 isSwitchingContextRef.current = true;
                 guide.endSession();
                 setPage('camera');
-                setContextSheetOpen(true);
+                setShowShootingGuide(true);
                 setContext('GENERAL');
+                setTaskGoal('');
+                setGoalSheetOpen(true);
               }}
             >
               다른 작업 하기 →
@@ -756,12 +1097,50 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
   const selectedOcrTarget = guide.arTarget
     ? biosOcrRegions.find(region => region.id === guide.arTarget?.targetId) ?? null
     : null;
+  const visionBboxTarget = guide.arTarget?.bbox
+    ? arTargetBboxToRegion(guide.arTarget, biosVideoSize)
+    : null;
+  const arHintMatchedTarget = guide.arTarget && !selectedOcrTarget && !guide.isStreaming
+    ? pickOcrTargetByArHint(
+        biosOcrRegions,
+        guide.arTarget.label,
+        guide.arTarget.reason,
+        guide.streamText,
+        taskGoal,
+        context,
+      )
+    : null;
+  const fallbackOcrTarget = !selectedOcrTarget && !arHintMatchedTarget && !guide.isStreaming
+    ? pickFallbackOcrTarget(biosOcrRegions, guide.streamText, taskGoal, context)
+    : null;
+  const fallbackTextRegionTarget = !selectedOcrTarget && !arHintMatchedTarget && !fallbackOcrTarget && !guide.isStreaming && guide.streamText
+    ? textRegionToArTarget(biosTextRegions[0])
+    : null;
+  const rawActiveOcrTarget = visionBboxTarget ?? selectedOcrTarget ?? arHintMatchedTarget ?? fallbackOcrTarget ?? fallbackTextRegionTarget;
+  const activeOcrTarget = rawActiveOcrTarget
+    ? makeClickableTargetRegion(rawActiveOcrTarget, biosVideoSize, visionBboxTarget ? 'vision' : 'fallback')
+    : null;
+  const isActionMode = guide.arTarget?.mode === 'action' || isHwRepairContext(context);
+  const activeTargetLabel = isActionMode
+    ? (guide.arTarget?.label ?? '여기를 조치하세요!')
+    : visionBboxTarget || selectedOcrTarget
+      ? (guide.arTarget?.label ?? '여기를 선택')
+      : arHintMatchedTarget || fallbackOcrTarget
+        ? '여기를 누르세요'
+        : '이 후보를 확인';
+  const activeTargetLabelWidth = Math.max(118, activeOcrTarget ? Math.min(220, activeOcrTarget.bbox.w + 34) : 118);
+  const activeTargetLabelPosition = activeOcrTarget && biosVideoSize
+    ? getTargetLabelPosition(activeOcrTarget, biosVideoSize, activeTargetLabelWidth)
+    : null;
+  const visibleTextRegions: BiosTextRegion[] = SHOW_CC_DEBUG_REGIONS
+    ? biosTextRegions.slice(0, activeOcrTarget ? 6 : 10)
+    : [];
   const hasFrozenFrame = !!frozenFrame;
 
   return (
     <div className="nd-live-guide-page nd-live-guide-camera-root">
 
-      {/* ── 상단바: [×] [컨텍스트 ▾] [CV상태] ── */}
+      {/* ── 상단바: [×] [현재 목표 칩] [CV상태] ── */}
       <div className="nd-live-guide-topbar">
         <button
           type="button"
@@ -773,12 +1152,22 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
         </button>
         <button
           type="button"
-          className="nd-guide-context-btn"
-          onClick={() => setContextSheetOpen(true)}
-          aria-label="작업 변경"
-          aria-haspopup="dialog"
+          className={`nd-guide-goal-chip${taskGoal ? '' : ' is-empty'}`}
+          onClick={openGoalSheet}
+          aria-label={taskGoal ? `현재 목표: ${taskGoal}. 탭하면 변경` : '목표 정하기'}
         >
-          {CONTEXT_LABELS[context]} ▾
+          {taskGoal ? (
+            <>
+              <span className="nd-guide-goal-chip-label">목표</span>
+              <span className="nd-guide-goal-chip-text">{taskGoal}</span>
+              <span className="nd-guide-goal-chip-edit" aria-hidden="true">✎</span>
+            </>
+          ) : (
+            <>
+              <span className="nd-guide-goal-chip-label">+</span>
+              <span className="nd-guide-goal-chip-text">목표 정하기</span>
+            </>
+          )}
         </button>
         <button
           type="button"
@@ -791,12 +1180,14 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
           {cvReady ? '🔬' : '⌛'}
         </button>
       </div>
-
-      {/* ── 독립 모드 경고 (isStandalone) ── */}
-      {isStandalone && (
-        <div className="nd-standalone-warn" role="alert">
-          <span aria-hidden="true">⚠️</span>
-          <span>지금은 휴대폰 카메라로 화면과 장치 상태를 보며 단계별로 확인합니다.</span>
+      {guide.llmMode !== 'unknown' && (
+        <div
+          className={`nd-llm-status-strip ${guide.llmMode}`}
+          role={guide.llmMode === 'mock' ? 'alert' : 'status'}
+          title={guide.llmError || (guide.llmMode === 'live' ? 'Gemini 백엔드 연결됨' : 'Mock 안내 사용 중')}
+        >
+          <span className="nd-llm-status-dot" aria-hidden="true" />
+          <span>{guide.llmMode === 'live' ? 'Gemini 연결됨' : 'Mock 안내 중'}</span>
         </div>
       )}
 
@@ -834,22 +1225,16 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
           </span>
         </div>
 
-        {/* Task 7: AR 오버레이 — Hough 모서리 + CC 텍스트 후보를 비디오 위에 SVG로 렌더
+        {/* Task 7: AR 오버레이 — Hough 모서리 + 클릭 대상 OCR 타깃.
+            CC 후보는 디버그 데이터로만 유지하고 기본 화면에는 렌더하지 않음.
             viewBox + preserveAspectRatio="xMidYMid slice" = CSS object-fit:cover와 동일 매핑 */}
-        {biosVideoSize && (biosCorners || biosTextRegions.length > 0 || selectedOcrTarget) && (
+        {biosVideoSize && (biosCorners || visibleTextRegions.length > 0 || activeOcrTarget) && (
           <svg
             className="nd-ar-overlay"
             viewBox={`0 0 ${biosVideoSize.w} ${biosVideoSize.h}`}
             preserveAspectRatio="xMidYMid slice"
             aria-hidden="true"
           >
-            {biosTextRegions.map(region => (
-              <polygon
-                key={region.id}
-                points={region.points.map(point => `${point[0] ?? 0},${point[1] ?? 0}`).join(' ')}
-                className="nd-ar-text-region"
-              />
-            ))}
             {biosCorners && (
               <>
                 <polygon
@@ -861,26 +1246,46 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
                 ))}
               </>
             )}
-            {selectedOcrTarget && (
-              <g className="nd-ar-selected-target">
+            {visibleTextRegions.map(region => (
+              <polygon
+                key={region.id}
+                points={region.points.map(point => `${point[0] ?? 0},${point[1] ?? 0}`).join(' ')}
+                className="nd-ar-text-region"
+              />
+            ))}
+            {activeOcrTarget && (
+              <g className={`nd-ar-selected-target${isActionMode ? ' is-action' : ''}`}>
+                <line
+                  x1={Math.min(biosVideoSize.w - 8, activeOcrTarget.bbox.x + activeOcrTarget.bbox.w + 28)}
+                  y1={Math.max(18, activeOcrTarget.bbox.y - 18)}
+                  x2={activeOcrTarget.bbox.x + activeOcrTarget.bbox.w * 0.5}
+                  y2={activeOcrTarget.bbox.y + activeOcrTarget.bbox.h * 0.5}
+                  className="nd-ar-target-pointer"
+                />
+                <circle
+                  cx={activeOcrTarget.bbox.x + activeOcrTarget.bbox.w * 0.5}
+                  cy={activeOcrTarget.bbox.y + activeOcrTarget.bbox.h * 0.5}
+                  r={Math.max(14, Math.min(34, activeOcrTarget.bbox.h * 0.9))}
+                  className="nd-ar-target-halo"
+                />
                 <polygon
-                  points={selectedOcrTarget.points.map(point => `${point[0] ?? 0},${point[1] ?? 0}`).join(' ')}
+                  points={activeOcrTarget.points.map(point => `${point[0] ?? 0},${point[1] ?? 0}`).join(' ')}
                   className="nd-ar-target-region"
                 />
                 <rect
-                  x={selectedOcrTarget.bbox.x}
-                  y={Math.max(0, selectedOcrTarget.bbox.y - 30)}
-                  width={Math.max(96, selectedOcrTarget.bbox.w + 24)}
-                  height={24}
+                  x={activeTargetLabelPosition?.x ?? activeOcrTarget.bbox.x}
+                  y={activeTargetLabelPosition?.y ?? Math.max(0, activeOcrTarget.bbox.y - 38)}
+                  width={activeTargetLabelWidth}
+                  height={30}
                   rx={6}
                   className="nd-ar-target-label-bg"
                 />
                 <text
-                  x={selectedOcrTarget.bbox.x + 12}
-                  y={Math.max(18, selectedOcrTarget.bbox.y - 13)}
+                  x={(activeTargetLabelPosition?.x ?? activeOcrTarget.bbox.x) + 14}
+                  y={(activeTargetLabelPosition?.y ?? Math.max(0, activeOcrTarget.bbox.y - 38)) + 20}
                   className="nd-ar-target-label"
                 >
-                  {guide.arTarget?.label ?? '여기를 선택'}
+                  {activeTargetLabel}
                 </text>
               </g>
             )}
@@ -911,9 +1316,9 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
             captureState={guide.captureState}
             elapsed={guide.elapsed}
             staleGuide={guide.staleGuide}
-            compact={hasFrozenFrame || !!selectedOcrTarget}
+            compact={hasFrozenFrame || !!activeOcrTarget}
           />
-          {guide.session?.status === 'ACTIVE' && !selectedOcrTarget && (
+          {guide.session?.status === 'ACTIVE' && !activeOcrTarget && (
             <form className="nd-guide-question-form" onSubmit={handleQuestionSubmit}>
               <label className="nd-guide-question-label" htmlFor="nd-guide-question-input">
                 질문하기
@@ -939,12 +1344,12 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
             <div className="nd-resolution-check" role="group" aria-label="조치 결과 확인">
               {resolutionStep === 'idle' ? (
                 <>
-                  <span>{selectedOcrTarget ? '표시된 곳을 눌렀나요?' : '안내한 조치를 해보셨나요?'}</span>
+                  <span>{activeOcrTarget ? '표시된 곳을 눌렀나요?' : '안내한 조치를 해보셨나요?'}</span>
                   <button type="button" onClick={handleActionTried}>
-                    {selectedOcrTarget ? '눌렀어요' : '해봤어요'}
+                    {activeOcrTarget ? '눌렀어요' : '해봤어요'}
                   </button>
                   <button type="button" onClick={handleStillUnresolved}>
-                    {selectedOcrTarget ? '못 찾겠어요' : '아직이에요'}
+                    {activeOcrTarget ? '못 찾겠어요' : '아직이에요'}
                   </button>
                 </>
               ) : (
@@ -1031,7 +1436,29 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
         </div>
       )}
 
-      {/* ── 컨텍스트 선택 풀업 시트 ── */}
+      {/* ── 목표 입력 풀업 시트 (Camera-First, 마운트 시 자동 오픈) ── */}
+      {goalSheetOpen && (
+        <div
+          className="nd-context-sheet-backdrop"
+          onClick={() => setGoalSheetOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="목표 입력"
+        >
+          <div
+            className="nd-context-sheet"
+            onClick={e => e.stopPropagation()}
+          >
+            <GoalInputSheet
+              initialGoal={taskGoal}
+              onConfirm={handleGoalConfirm}
+              onSkip={handleGoalSkip}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── 컨텍스트 선택 풀업 시트 (완료 화면에서 "다른 작업" 진입 시) ── */}
       {contextSheetOpen && (
         <div
           className="nd-context-sheet-backdrop"
@@ -1078,6 +1505,79 @@ export default function LiveGuideMode({ isStandalone = false, initialContext = '
             />
             <div style={{ marginTop: '0.75rem' }}>
               <AudioCapture biosType={biosType} symptom="부팅 시 비프음 패턴 분석" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hwSafetyModalOpen && (
+        <div
+          className="nd-hw-safety-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="nd-hw-safety-title"
+        >
+          <div className="nd-hw-safety-modal">
+            <div className="nd-hw-safety-icon" aria-hidden="true">🛠️</div>
+            <h2 id="nd-hw-safety-title">시작 전 안전 체크</h2>
+            <p>물리 부품을 만지기 전에 아래 사항을 꼭 확인해주세요.</p>
+            <ul className="nd-hw-safety-list">
+              <li><strong>전원 코드</strong>를 콘센트에서 완전히 분리했어요.</li>
+              <li>본체 전원 버튼을 5초 누르고 있어 <strong>잔류 전류</strong>를 빼냈어요.</li>
+              <li>금속 부분을 만져 <strong>정전기</strong>를 방전했어요 (또는 손목 접지띠 착용).</li>
+              <li>부품 <strong>금색 단자</strong>는 손가락으로 직접 만지지 않을 거예요.</li>
+            </ul>
+            <p className="nd-hw-safety-note">
+              ⚠️ 잘 모르겠으면 수리 기사 상담을 권장해요. 잘못 만지면 부품이 영구 손상될 수 있어요.
+            </p>
+            <div className="nd-hw-safety-actions">
+              <button
+                type="button"
+                className="nd-hw-safety-cancel"
+                onClick={() => {
+                  setHwSafetyModalOpen(false);
+                  setContext('GENERAL');
+                }}
+              >
+                다른 진단 하기
+              </button>
+              <button
+                type="button"
+                className="nd-hw-safety-confirm"
+                onClick={handleHwSafetyConfirm}
+              >
+                모두 확인했어요
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {exitConfirmOpen && (
+        <div
+          className="nd-exit-confirm-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="nd-exit-confirm-title"
+        >
+          <div className="nd-exit-confirm">
+            <h2 id="nd-exit-confirm-title">진단을 종료할까요?</h2>
+            <p>현재 안내 내용과 카메라 분석 흐름이 종료됩니다.</p>
+            <div className="nd-exit-confirm-actions">
+              <button
+                type="button"
+                className="nd-exit-confirm-secondary"
+                onClick={() => setExitConfirmOpen(false)}
+              >
+                계속 진단하기
+              </button>
+              <button
+                type="button"
+                className="nd-exit-confirm-primary"
+                onClick={handleConfirmExit}
+              >
+                홈으로 나가기
+              </button>
             </div>
           </div>
         </div>

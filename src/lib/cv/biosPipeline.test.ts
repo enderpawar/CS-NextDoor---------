@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectBiosVendor } from './biosPipeline';
+import { detectBiosVendor, isLikelyClickableText } from './biosPipeline';
 
 describe('detectBiosVendor', () => {
   it('detects AMI-style UEFI and OEM BIOS text', () => {
@@ -14,5 +14,18 @@ describe('detectBiosVendor', () => {
 
   it('returns null when no vendor keyword is present', () => {
     expect(detectBiosVendor('Boot priority and secure boot settings')).toBeNull();
+  });
+});
+
+describe('isLikelyClickableText', () => {
+  it('keeps short BIOS action labels that users may need to select', () => {
+    expect(isLikelyClickableText('OK')).toBe(true);
+    expect(isLikelyClickableText('F10')).toBe(true);
+    expect(isLikelyClickableText('ESC')).toBe(true);
+  });
+
+  it('rejects short OCR noise', () => {
+    expect(isLikelyClickableText('--')).toBe(false);
+    expect(isLikelyClickableText('!')).toBe(false);
   });
 });

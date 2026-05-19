@@ -1,0 +1,23 @@
+filename,screen_id,angle_deg,defect_type,corner_detected,quad_area_ratio,line_count,corner_method,text_roi_count,mean_iou,notes
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555.jpg,boot-main,0,real-capture,False,0.0,408,none,223,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_01.jpg,boot-main,0,real-capture,True,0.1543592110046633,234,fallback-roi,242,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_02.jpg,boot-main,0,real-capture,True,0.1708829365079365,586,fallback-roi,494,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_03.jpg,boot-main,0,real-capture,True,0.28422619047619047,628,fallback-roi,381,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_04.jpg,boot-main,0,real-capture,True,0.1830107451477323,505,fallback-roi,186,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_05.jpg,boot-main,0,real-capture,False,0.0,42,none,604,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_06.jpg,boot-main,0,real-capture,True,0.21568627450980393,830,fallback-roi,471,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_07.jpg,boot-main,0,real-capture,False,0.0,565,none,441,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_08.jpg,boot-main,0,real-capture,True,0.4420518207282913,3946,fallback-roi,340,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_09.jpg,boot-main,0,real-capture,False,0.0,744,none,242,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_10.jpg,boot-main,0,real-capture,False,0.0,359,none,869,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_11.jpg,boot-popup,0,real-capture,True,0.31552687625976317,539,fallback-roi,365,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_12.jpg,boot-popup,0,real-capture,True,0.2857142857142857,684,fallback-roi,518,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_13.jpg,boot-popup,0,real-capture,True,0.2926587301587302,694,fallback-roi,457,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_14.jpg,boot-popup,0,real-capture,True,0.4446924603174603,591,fallback-roi,334,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_15.jpg,boot-popup,0,real-capture,True,0.45907738095238093,567,fallback-roi,535,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_16.jpg,boot-popup,0,real-capture,False,0.0,58,none,589,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_17.jpg,boot-popup,0,real-capture,True,0.2170370173532376,919,fallback-roi,344,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_18.jpg,boot-popup,0,real-capture,True,0.1505456349206349,609,fallback-roi,474,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_19.jpg,boot-popup,0,real-capture,True,0.39355742296918766,1857,fallback-roi,276,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_20.jpg,boot-popup,0,real-capture,False,0.0,600,none,193,nan,IoU requires optional manual corner annotations.
+C:/Users/user/Desktop/test data/KakaoTalk_20260519_125632555_21.jpg,boot-popup,0,real-capture,False,0.0,319,none,775,nan,IoU requires optional manual corner annotations.

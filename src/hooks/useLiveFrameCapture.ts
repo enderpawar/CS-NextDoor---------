@@ -57,6 +57,8 @@ interface UseLiveFrameCaptureOptions {
   /** Task 6: 모듈 1 OCR 결과에서 BIOS vendor를 감지했을 때 호출 */
   onBiosVendorDetected?: (vendor: BiosType) => void;
   enableBiosVendorOcr?: boolean;
+  /** false면 BIOS Hough 모서리/CC 텍스트 전처리를 건너뛴다 (HW 조치 모드용). 기본 true. */
+  enableBiosPreprocess?: boolean;
   /** true일 때만 화면 변화 감지를 Gemini 프레임 전송으로 연결한다. */
   enableAutoFrameSend?: boolean;
   cooldownMs?:       number;
@@ -75,6 +77,7 @@ export function useLiveFrameCapture({
   onBiosOverlay,
   onBiosVendorDetected,
   enableBiosVendorOcr = false,
+  enableBiosPreprocess = true,
   enableAutoFrameSend = true,
   cooldownMs      = 2000,
   histThreshold   = BEST_PARAMS.threshold,
@@ -182,29 +185,32 @@ export function useLiveFrameCapture({
             `histWindow=${BEST_PARAMS.windowSize}`,
           ].join(', ');
 
-          try {
-            const preprocessed = preprocessBiosFrameForGuide(rgba);
-            base64 = preprocessed.canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? base64;
-            cvSummary = [
-              cvSummary,
-              `biosRectified=${preprocessed.rectified}`,
-              `biosTextRegions=${preprocessed.textRegionCount}`,
-              `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
-            ].join(', ');
-            onBiosOverlay?.({
-              corners: preprocessed.corners,
-              textRegions: preprocessed.textRegions,
-              videoW: canvas.width,
-              videoH: canvas.height,
-            });
-          } catch {
-            cvSummary = `${cvSummary}, biosPreprocess=failed`;
-            onBiosOverlay?.({
-              corners: null,
-              textRegions: [],
-              videoW: canvas.width,
-              videoH: canvas.height,
-            });
+          if (enableBiosPreprocess) {
+            try {
+              const preprocessed = preprocessBiosFrameForGuide(rgba);
+              cvSummary = [
+                cvSummary,
+                `biosRectified=${preprocessed.rectified}`,
+                `biosTextRegions=${preprocessed.textRegionCount}`,
+                `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
+              ].join(', ');
+              onBiosOverlay?.({
+                corners: preprocessed.corners,
+                textRegions: preprocessed.textRegions,
+                videoW: canvas.width,
+                videoH: canvas.height,
+              });
+            } catch {
+              cvSummary = `${cvSummary}, biosPreprocess=failed`;
+              onBiosOverlay?.({
+                corners: null,
+                textRegions: [],
+                videoW: canvas.width,
+                videoH: canvas.height,
+              });
+            }
+          } else {
+            cvSummary = `${cvSummary}, biosPreprocess=skipped`;
           }
 
           // vendor OCR: 시도 횟수(최대 3회) + cooldown(5초) 제한

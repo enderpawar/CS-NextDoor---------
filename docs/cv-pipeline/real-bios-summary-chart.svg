@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="520" viewBox="0 0 1040 520">
+  <rect width="1040" height="520" rx="18" fill="#ffffff"/>
+  <text x="64" y="58" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#111827">Real-Capture OpenCV Evaluation Summary</text>
+  <text x="64" y="92" font-family="Arial, sans-serif" font-size="16" fill="#64748b">22 real camera BIOS frames from C:\Users\user\Desktop\test data</text>
+  
+  <text x="70" y="162" font-family="Arial, sans-serif" font-size="18" fill="#334155">Quality pass</text>
+  <rect x="240" y="140" width="480" height="30" rx="8" fill="#e5e7eb"/>
+  <rect x="240" y="140" width="174" height="30" rx="8" fill="#2563eb"/>
+  <text x="742" y="162" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#111827">8/22 (36.4%)</text>
+
+  <text x="70" y="224" font-family="Arial, sans-serif" font-size="18" fill="#334155">Quality reject</text>
+  <rect x="240" y="202" width="480" height="30" rx="8" fill="#e5e7eb"/>
+  <rect x="240" y="202" width="305" height="30" rx="8" fill="#ef4444"/>
+  <text x="742" y="224" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#111827">14/22 (63.6%)</text>
+
+  <text x="70" y="286" font-family="Arial, sans-serif" font-size="18" fill="#334155">ROI detected</text>
+  <rect x="240" y="264" width="480" height="30" rx="8" fill="#e5e7eb"/>
+  <rect x="240" y="264" width="305" height="30" rx="8" fill="#14b8a6"/>
+  <text x="742" y="286" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#111827">14/22 (63.6%)</text>
+
+  <text x="70" y="348" font-family="Arial, sans-serif" font-size="18" fill="#334155">OCR measured</text>
+  <rect x="240" y="326" width="480" height="30" rx="8" fill="#e5e7eb"/>
+  <rect x="240" y="326" width="0" height="30" rx="8" fill="#94a3b8"/>
+  <text x="742" y="348" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#111827">0/22 (0.0%)</text>
+
+  <rect x="64" y="408" width="912" height="76" rx="14" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="92" y="438" font-family="Arial, sans-serif" font-size="17" fill="#334155">Mean sharpness: 0.036</text>
+  <text x="340" y="438" font-family="Arial, sans-serif" font-size="17" fill="#334155">Mean Laplacian variance: 57.5</text>
+  <text x="680" y="438" font-family="Arial, sans-serif" font-size="17" fill="#334155">Mean text/edge ROI: 425.1</text>
+  <text x="92" y="466" font-family="Arial, sans-serif" font-size="14" fill="#64748b">OCR is marked as unmeasured because local Tesseract/pytesseract is not installed in this environment.</text>
+</svg>

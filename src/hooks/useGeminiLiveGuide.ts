@@ -30,6 +30,8 @@ const MOCK_RESPONSES: Record<string, string> = {
   APP_NOT_OPENING: '📺 오류 화면이 보여요!\n\n오류 코드나 메시지를 알려주시면 정확한 원인을 찾을 수 있어요.\n\n일단 해당 프로그램을 **제어판 → 프로그램 제거**에서 지운 뒤 재설치해보세요.',
   NETWORK_ISSUE:   '📺 네트워크 상태 화면이에요!\n\nWi-Fi 아이콘에 느낌표가 있으면 IP 충돌이나 DNS 문제일 수 있어요.\n\n`ipconfig /flushdns` 명령을 관리자 CMD에서 실행해보세요.',
   BLUE_SCREEN:     '📺 블루스크린이에요!\n\n중지 코드가 보이시나요? 코드를 알려주시면 정확한 원인을 찾을게요.\n\n`MEMORY_MANAGEMENT`면 RAM 문제, `DRIVER_IRQL`이면 드라이버 문제일 가능성이 높아요.',
+  HW_REPAIR_RAM:   '🛠️ 메인보드가 보이네요!\n\n검은색 긴 슬롯이 RAM 자리예요. 양쪽 흰색(또는 검은색) 클립을 바깥으로 살짝 눌러서 메모리를 빼주세요.\n\n뺐으면 금색 단자를 마른 지우개로 가볍게 닦은 뒤 "딸깍" 소리가 날 때까지 다시 꽂아주세요.',
+  HW_REPAIR_GPU:   '🛠️ 그래픽카드(GPU) 자리가 보여요!\n\n가장 긴 PCIe 슬롯 끝의 잠금 레버를 손가락으로 눌러서 풀어주세요. 그래픽카드에 보조전원(6핀/8핀) 케이블이 꽂혀 있다면 그것도 먼저 분리하세요.\n\n분리 후 단자에 먼지가 없는지 확인하고 다시 끝까지 밀어 넣으면 됩니다.',
 };
 
 const MOCK_FOLLOW_UP_RESPONSES: Record<string, string> = {
@@ -40,6 +42,8 @@ const MOCK_FOLLOW_UP_RESPONSES: Record<string, string> = {
   NETWORK_ISSUE:   'DNS 초기화 후에도 안 된다면 연결 경로를 분리해서 볼게요.\n\n휴대폰 핫스팟에 연결했을 때 인터넷이 되는지 확인해주세요. 핫스팟은 되고 집 Wi-Fi만 안 되면 공유기 쪽 문제일 가능성이 큽니다.\n\n핫스팟에서는 연결되나요?',
   BLUE_SCREEN:     '같은 블루스크린이 반복된다면 최근 변경 사항부터 되돌려볼게요.\n\n최근 설치한 드라이버나 프로그램이 있다면 안전 모드에서 제거한 뒤 재부팅해주세요.\n\n제거 후에도 블루스크린이 나오나요?',
   BIOS_BOOT:       '이전 BIOS 조치로 해결되지 않았다면 부팅 장치 인식부터 확인할게요.\n\nBIOS의 Boot 메뉴에서 SSD나 USB가 목록에 보이는지 확인해주세요. 목록에 없다면 저장장치 연결이나 USB 제작 상태를 먼저 봐야 합니다.\n\n부팅 장치가 목록에 보이나요?',
+  HW_REPAIR_RAM:   'RAM 재장착 후에도 같은 증상이면 다른 슬롯을 시도해볼 차례예요.\n\n메모리를 다른 슬롯으로 옮겨 꽂아보고, 메모리가 2개라면 1개만 꽂은 채로 부팅이 되는지 하나씩 테스트해주세요.\n\n어떤 조합에서 부팅이 되나요?',
+  HW_REPAIR_GPU:   'GPU 재장착으로도 해결되지 않으면 전원 공급부터 확인할게요.\n\n그래픽카드 보조전원 케이블이 단단히 꽂혀 있는지, 모니터 케이블이 메인보드가 아니라 그래픽카드에 연결돼 있는지 확인해주세요.\n\n케이블 두 곳을 다 확인했나요?',
 };
 
 const MOCK_QUESTION_RESPONSES: Record<string, string> = {
@@ -64,11 +68,14 @@ function parseArTarget(raw: string): GuideArTarget | null {
   if (!raw || raw === 'null') return null;
   try {
     const parsed = JSON.parse(raw) as Partial<GuideArTarget>;
-    if (!parsed.targetId || !parsed.label) return null;
+    if (!parsed.label || (!parsed.targetId && !parsed.bbox)) return null;
+    const mode: GuideArTarget['mode'] = parsed.mode === 'action' ? 'action' : 'click';
     return {
       targetId: parsed.targetId,
       label: parsed.label,
       reason: parsed.reason,
+      mode,
+      bbox: parsed.bbox,
     };
   } catch {
     return null;
@@ -79,6 +86,16 @@ function pickMockTarget(
   regions: GuideOcrRegion[] | undefined,
   context: GuideContext,
 ): GuideArTarget | null {
+  // HW 조치 모드 — OCR 후보 무시, 화면 중앙 부근에 가상 부품 박스 표시
+  if (context === 'HW_REPAIR_RAM' || context === 'HW_REPAIR_GPU') {
+    return {
+      label: '여기를 조치하세요!',
+      reason: context === 'HW_REPAIR_RAM' ? 'RAM 슬롯 양쪽 클립' : 'GPU PCIe 슬롯 잠금 레버',
+      mode: 'action',
+      bbox: { x: 300, y: 400, w: 400, h: 180, unit: 'normalized1000' },
+    };
+  }
+
   if (!regions?.length || context !== 'BIOS_BOOT') return null;
   const preferred = [
     /boot/i,
@@ -95,10 +112,12 @@ function pickMockTarget(
     targetId: target.id,
     label: '여기를 선택',
     reason: 'OCR 후보 중 현재 BIOS 조작과 가장 관련 있어 보여요.',
+    mode: 'click',
   };
 }
 
 export type CaptureState = 'idle' | 'captured' | 'analyzing';
+export type GuideLlmMode = 'unknown' | 'live' | 'mock';
 
 export function useGeminiLiveGuide() {
   const [session,       setSession]       = useState<GuideSession | null>(null);
@@ -108,6 +127,8 @@ export function useGeminiLiveGuide() {
   const [elapsed,       setElapsed]       = useState(0);
   const [staleGuide,    setStaleGuide]    = useState(false);
   const [arTarget,      setArTarget]      = useState<GuideArTarget | null>(null);
+  const [llmMode,       setLlmMode]       = useState<GuideLlmMode>('unknown');
+  const [llmError,      setLlmError]      = useState<string>('');
 
   const isSendingRef      = useRef(false);
   const abortRef          = useRef<AbortController | null>(null);
@@ -146,6 +167,8 @@ export function useGeminiLiveGuide() {
     setCaptureState('idle');
     setStaleGuide(false);
     setArTarget(null);
+    setLlmMode('unknown');
+    setLlmError('');
   }, [session, stopElapsedTimer]);
 
   // ── 세션 시작 ───────────────────────────────────────────────────────────────
@@ -161,9 +184,13 @@ export function useGeminiLiveGuide() {
       if (!res.ok) throw new Error('API 오류');
       const data: { sessionId: string } = await res.json();
       sessionId = data.sessionId;
+      setLlmMode('live');
+      setLlmError('');
     } catch {
       // 백엔드 미응답 → mock 모드로 자동 전환 (데모/개발 환경)
       sessionId = `mock-${Date.now()}`;
+      setLlmMode('mock');
+      setLlmError(`백엔드(${API_BASE_URL})에 연결되지 않아 mock 안내로 전환됐어요.`);
     }
 
     setSession({ sessionId, context, status: 'ACTIVE' });
@@ -275,6 +302,8 @@ export function useGeminiLiveGuide() {
             return;
           }
           if (!response.ok || !response.body) throw new Error('스트리밍 응답 실패');
+          setLlmMode('live');
+          setLlmError('');
 
           const reader  = response.body.getReader();
           const decoder = new TextDecoder();
@@ -347,6 +376,7 @@ export function useGeminiLiveGuide() {
         ].slice(-MAX_HISTORY * 2);
       } catch (e) {
         if ((e as Error).name !== 'AbortError') {
+          setLlmError((e as Error).message || 'LLM 응답 수신 실패');
           setStreamText('오류가 발생했어요. 잠시 후 다시 시도해주세요.');
         }
       } finally {
@@ -378,6 +408,8 @@ export function useGeminiLiveGuide() {
     elapsed,
     staleGuide,
     arTarget,
+    llmMode,
+    llmError,
     setStaleGuide,
     setArTarget,
     isSendingRef,

@@ -94,10 +94,51 @@ graph TB
     ↓ 변화 감지 (windowSize 연속)
 [모듈 1] BIOS 화면 전처리 — Hough → Homography → CLAHE → AdaptiveThreshold → CC
     ↓ 전처리 완료 + cvSummary 메타데이터
-Gemini Vision — 이미지 + CV 메타데이터 → 자연어 단계별 안내
+Gemini Vision — 이미지 + CV 메타데이터 + OCR/ROI 후보 → 다음 조치 판단
     ↓
-SSE 스트리밍 → GuideBubble 타이핑 효과
+overlay target 선택 — targetId 또는 normalized bbox
+    ↓
+AR Overlay — 클릭/조치할 위치를 화면 위 박스로 표시
+    ↓
+SSE 스트리밍 → GuideBubble 단계별 안내
 ```
+
+OpenCV는 최종 진단을 직접 내리는 모델이 아니라, 카메라 입력을 Gemini가 해석하기 좋은 형태로 정리하는 전처리 계층입니다. 모바일 카메라로 PC 화면을 비추면 반사, 흔들림, 초점 흐림, 화면 일부 잘림이 자주 발생합니다. 이 프레임을 그대로 LLM에 보내면 불필요한 호출이 늘고, 화면의 어느 부분을 눌러야 하는지 좌표로 안내하기 어렵습니다.
+
+따라서 본 프로젝트에서는 OpenCV를 다음 세 가지 용도로 사용합니다.
+
+| 역할 | 사용 이유 | Gemini/Overlay와의 연결 |
+|---|---|---|
+| 프레임 게이트 | 흐린 프레임, 어두운 프레임, 변화 없는 프레임을 먼저 제외 | Gemini에는 분석 가치가 있는 프레임만 전달 |
+| 화면 구조화 | BIOS 외곽, UI 구조선, 텍스트 후보 영역을 좌표 정보로 추출 | `cvSummary`, `ocrRegions`, ROI 후보로 전달 |
+| 위치 안내 기반 | 후보 영역을 원본 프레임 좌표계로 유지 | Gemini가 선택한 `targetId` 또는 `bbox`를 AR 박스로 표시 |
+
+소프트웨어/BIOS 안내에서는 OpenCV가 메뉴와 텍스트 후보를 찾고, Gemini가 사용자의 목표에 맞는 항목을 선택합니다. 예를 들어 부팅 순서 변경 상황에서는 `Boot Option #1`, `UEFI USB`, `Save & Exit` 같은 후보가 프롬프트에 포함되고, Gemini가 다음에 눌러야 할 항목을 고르면 앱이 해당 위치를 박스로 표시합니다.
+
+하드웨어 조치에서는 OpenCV가 부품을 직접 분류하기보다는 프레임 품질과 변화 여부를 먼저 관리합니다. Gemini Vision이 RAM 슬롯, GPU 보조전원, 케이블 같은 조치 대상을 판단하면, 응답에 포함된 normalized bbox를 화면 위에 표시합니다. 즉 OpenCV는 입력 안정화와 좌표 기반 후보 제공을 담당하고, Gemini는 의미 판단과 다음 행동 선택을 담당합니다.
+
+### OpenCV 도입 효과
+
+OpenCV를 넣은 목적은 Gemini의 판단을 대체하는 것이 아니라, Gemini가 판단하기 전의 입력을 정리하는 것입니다. 실제 모바일 카메라 입력은 화면이 흐리거나, 모니터 반사가 심하거나, 같은 화면이 반복해서 들어오는 경우가 많습니다. 이런 프레임을 모두 LLM에 전달하면 비용이 늘고 응답이 불안정해질 수 있습니다.
+
+OpenCV 적용 전후를 비교하면 다음과 같습니다.
+
+| 문제 | OpenCV 없이 처리할 때 | OpenCV 적용 후 | 현재 근거 |
+|---|---|---|---|
+| 저품질 프레임 | 흐림, 반사, 어두운 프레임도 그대로 Gemini에 전달될 수 있음 | 품질 게이트에서 먼저 제외 | 실촬영 22장 중 14장 거부 (**63.6%**) |
+| 분석 가능한 프레임 선별 | 사용자가 다시 비추기 전까지 입력 품질을 알기 어려움 | sharpness, brightness, coverage로 프레임 상태를 수치화 | 평균 sharpness **0.036**, Laplacian variance **57.5** |
+| 반복 프레임 전송 | 같은 화면을 여러 번 분석할 수 있음 | 히스토그램 변화 감지 후 의미 있는 변화가 있을 때만 후속 분석 | 모듈 2 전체 F1 **0.703**, 정상 화면 전환 F1 **0.917** |
+| BIOS 화면 위치 | Gemini가 이미지 전체에서 메뉴 위치를 직접 추론해야 함 | Canny/Hough/contour로 BIOS ROI 후보를 좌표화 | 실촬영 22장 중 14장 ROI 후보 검출 (**63.6%**) |
+| 텍스트 후보 영역 | 전체 이미지를 OCR 또는 Vision 모델에 의존 | connected components로 텍스트/에지 후보 영역 분리 | 평균 텍스트/에지 ROI 후보 **425.1개** |
+| 사용자 안내 방식 | "Boot Option을 누르세요" 같은 자연어 안내에 그침 | Gemini가 선택한 target/bbox를 화면 위 박스로 표시 | `targetId` 또는 normalized `bbox` 기반 AR Overlay |
+
+이 구조의 핵심 이득은 세 가지입니다.
+
+1. **호출 절감**: 품질이 낮거나 변화가 없는 프레임을 걸러 Gemini 호출 후보를 줄입니다.
+2. **판단 안정화**: Gemini가 전체 이미지를 처음부터 해석하기보다, OpenCV가 정리한 품질 정보와 후보 영역을 함께 사용합니다.
+3. **행동 안내 연결**: 최종 응답이 자연어 설명에서 끝나지 않고, 클릭하거나 조치해야 할 위치를 화면 위 박스로 표시할 수 있습니다.
+
+따라서 본 프로젝트의 OpenCV 파이프라인은 단순한 이미지 보정이 아니라, LLM 기반 진단을 실제 사용자 행동으로 연결하기 위한 입력 게이트와 grounding 계층입니다. 정확도 향상 자체는 OCR 환경을 포함한 추가 정량 평가가 필요하지만, 현재 실촬영 데이터 기준으로도 품질 필터링과 후보 좌표 생성 효과는 확인할 수 있습니다.
 
 ---
 
@@ -134,11 +175,78 @@ SSE 스트리밍 → GuideBubble 타이핑 효과
 | + Homography + CLAHE + AdaptThresh | 이진화 | 불균일 조명에서 Otsu 대비 강건 |
 | **전체 파이프라인 + CC** | **텍스트 ROI 분리** | **Tesseract.js 전달 이미지 최적화** |
 
-> ⚠️ **정량 OCR 수치**: 로컬 Tesseract 설치 + 실제 BIOS 촬영 데이터셋 필요.  
-> synthetic ablation (5개 합성 이미지)에서는 0.0 측정 — 실기기 데이터 수집 후 재측정 예정.  
-> 라이브 가이드 모드에서는 OCR을 Gemini Vision에 위임하므로 런타임 동작에는 영향 없음.
+현재 제출 자료에서는 synthetic OCR ablation 그래프를 핵심 근거로 사용하지 않았습니다. 로컬 Tesseract가 없는 환경에서는 OCR 점수가 0으로 기록되어 빈 그래프처럼 보일 수 있기 때문입니다. 대신 실제 촬영 BIOS 22장에 대해 OpenCV가 품질 게이트, BIOS ROI 후보, 텍스트/에지 후보를 얼마나 만들어내는지 측정한 결과를 근거로 사용했습니다.
 
-![BIOS Ablation](docs/ablation-results/bios-ablation.png)
+#### Real-Capture BIOS Evaluation
+
+MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄운 뒤, 스마트폰으로 22장의 이미지를 촬영했습니다. 스크린샷 대신 실제 촬영 이미지를 사용한 이유는 카메라 기반 진단에서 자주 생기는 반사, 초점 흐림, 화면 외 영역, 부분 crop이 전처리 성능에 직접 영향을 주기 때문입니다.
+
+| 평가 항목 | 포함한 조건 | 사용한 OpenCV 처리 |
+|---|---|---|
+| 프레임 품질 게이트 | blur / dark / bright / glare / far / shake | Laplacian variance, brightness mean/std |
+| BIOS 외곽 검출 | front / left15 / right15 / left30 / right30 / tilt | Canny, HoughLinesP, contour quad 후보 |
+| 전처리/OCR | boot-main / boot-popup | CLAHE, Adaptive Gaussian Threshold, OCR similarity |
+| 영상 변화 감지 | boot-main → boot-popup | histogram correlation 기반 scene-change gate |
+
+아래 자료는 같은 입력에 대해 OpenCV가 어떤 판단을 했는지 보여줍니다. 첫 번째 차트는 22장 전체의 정량 요약이고, 두 번째 이미지는 BIOS ROI와 텍스트 후보 오버레이입니다. 세 번째 이미지는 원본 카메라 입력이 CLAHE와 Adaptive Threshold를 거치며 LLM/OCR이 읽기 쉬운 형태로 정리되는 과정을 보여줍니다.
+
+![Real BIOS OpenCV Summary](docs/cv-pipeline/real-bios-summary-chart.svg)
+
+![Real BIOS ROI Overlay](docs/cv-pipeline/real-bios-overlay-grid.png)
+
+![Real BIOS Preprocess Comparison](docs/cv-pipeline/real-bios-preprocess-comparison.png)
+
+이 오버레이는 평가용 시각화이면서 실제 앱의 AR 안내 구조와도 연결됩니다. 앱에서는 OpenCV 전처리 결과를 `cvSummary`와 OCR/ROI 후보로 정리해 Gemini에 전달하고, Gemini가 선택한 대상은 `targetId` 또는 `bbox` 형태로 돌아옵니다. 프론트엔드는 이 좌표를 카메라 화면 좌표계에 맞춰 변환한 뒤 사용자가 클릭하거나 조치해야 할 위치를 박스로 표시합니다.
+
+| 단계 | 전달되는 정보 | 목적 |
+|---|---|---|
+| OpenCV → Gemini | 품질 점수, 밝기, Laplacian variance, 변화 감지 점수, BIOS rectified 여부, 텍스트 후보 수 | 현재 프레임이 분석 가능한지와 어떤 화면 구조를 갖는지 전달 |
+| OCR/ROI 후보 → Gemini | 텍스트 후보 id, bbox, confidence | Gemini가 “어느 메뉴/행을 눌러야 하는지” 선택할 수 있게 함 |
+| Gemini → Overlay | 자연어 안내 + `targetId` 또는 normalized `bbox` | 선택된 대상 위치를 앱 화면 위에 박스로 표시 |
+
+#### Real-Capture 정량 결과
+
+입력 데이터는 `C:\Users\user\Desktop\test data`에 저장된 BIOS 촬영 이미지 22장입니다. 일부 이미지는 브라우저 상단, 키보드, 모니터 반사가 함께 찍혀 있어, 실제 사용자가 모바일 카메라로 화면을 비출 때와 비슷한 조건을 포함합니다.
+
+| 지표 | 결과 | 해석 |
+|---|---:|---|
+| 전체 실촬영 이미지 | 22장 | MSI Click BIOS 5 boot 화면 계열 |
+| 품질 게이트 통과 | 8/22 (**36.4%**) | 후속 분석에 사용할 수 있는 프레임 |
+| 품질 게이트 거부 | 14/22 (**63.6%**) | 흐림, 반사, 낮은 디테일로 제외된 프레임 |
+| 평균 sharpness score | **0.036** | 범위 0.007~0.092 |
+| 평균 Laplacian variance | **57.5** | 범위 11.1~147.2 |
+| 평균 brightness | **0.418** | 범위 0.134~0.625, dark/normal 조건 혼합 |
+| ROI/corner 후보 검출 | 14/22 (**63.6%**) | strict quad 0건, fallback ROI 14건 |
+| 평균 Hough line 후보 | **740.2개** | 범위 42~3946 |
+| 평균 텍스트/에지 ROI 후보 | **425.1개** | 범위 186~869, OCR 전 후보 영역 |
+| OCR 정량 | 미측정 | 로컬 Tesseract/pytesseract 설치 후 재측정 |
+
+실촬영 입력은 OCR에 바로 넣기에는 품질 편차가 큽니다. 그래서 이 파이프라인은 먼저 Laplacian variance와 밝기 통계로 프레임을 걸러내고, 통과한 프레임에 대해서만 BIOS 영역 검출과 후속 OCR 단계를 수행하도록 구성했습니다.
+
+라벨 파일:
+
+- `data/bios/real-capture/ground-truth.csv` — 22장 실촬영 이미지 계획 및 정답 텍스트
+- `data/live-frames/real-video-ground-truth.csv` — 실제 테스트 영상 프레임 라벨
+
+평가 실행:
+
+```powershell
+python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Desktop\test data"
+```
+
+생성 결과:
+
+- `docs/ablation-results/real-bios-summary.csv`
+- `docs/ablation-results/real-bios-quality-results.csv`
+- `docs/ablation-results/real-bios-corner-results.csv`
+- `docs/ablation-results/real-bios-ocr-results.csv`
+- `docs/ablation-results/real-video-frame-results.csv`
+- `docs/cv-pipeline/real-bios-summary-chart.svg` — 22장 실촬영 평가 요약 차트
+- `docs/cv-pipeline/real-bios-overlay-grid.png` — BIOS ROI와 텍스트 후보 오버레이
+- `docs/cv-pipeline/real-bios-preprocess-comparison.png` — 원본 대비 전처리 결과 비교
+- `docs/cv-pipeline/real-bios-detection-gallery.png` — 원본/검출 오버레이/전처리 결과 전체 갤러리
+
+기존 synthetic/Wikimedia 데이터는 알고리즘 점검용으로 유지하고, 실촬영 BIOS 세트는 카메라 입력 조건에서의 동작을 확인하는 용도로 사용했습니다.
 
 #### CLAHE 파라미터 그리드 서치
 
@@ -148,7 +256,7 @@ SSE 스트리밍 → GuideBubble 타이핑 효과
 | **2.0** | **8** | **균형 — 표준 권장값 (Pizer et al. 1987)** |
 | 4.0 | 16 | 과대 보정 — 노이즈 증폭 |
 
-![CLAHE Gridsearch](docs/ablation-results/bios-clahe-gridsearch.png)
+CLAHE grid search 이미지는 로컬 OCR 측정 환경이 준비된 뒤 다시 생성하는 것이 맞습니다. 현재 README에서는 빈 heatmap을 정량 근거처럼 사용하지 않고, 실제 촬영 세트에서 생성된 품질/ROI/전처리 결과를 근거로 제시했습니다.
 
 #### 알고리즘 선택 근거 — Threshold 방법
 
@@ -263,7 +371,8 @@ SSE 스트리밍 → GuideBubble 타이핑 효과
 
 | 모듈 | 핵심 지표 | 결과 |
 |---|---|---|
-| 모듈 1 — BIOS 파이프라인 | OCR 정확도 (Levenshtein ≥ 0.8 비율) | 실기기 데이터 수집 후 측정 예정 |
+| 모듈 1 — BIOS 파이프라인 | OCR 정확도 (Levenshtein ≥ 0.8 비율) | 로컬 Tesseract 설치 후 재측정 |
+| 모듈 1 — Real-Capture 평가 | 품질 게이트 / ROI 후보 검출 | 8/22 통과, 14/22 ROI 후보 검출 |
 | 모듈 2 — 변화 감지 | 전체 36조합 평균 F1 | **0.703** (CORREL+GRAY+w=5) |
 | 모듈 2 — 변화 감지 | 정상 화면 전환 F1 | **0.917** |
 | 모듈 2 — 변화 감지 | Rolling Shutter Precision | **1.000** |

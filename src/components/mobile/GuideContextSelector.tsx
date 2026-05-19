@@ -51,6 +51,18 @@ const OPTIONS: ContextOption[] = [
     title:   'BIOS·부팅 설정',
     desc:    'BIOS 진입·USB 부팅·Secure Boot',
   },
+  {
+    context: 'HW_REPAIR_RAM',
+    icon:    '🛠️',
+    title:   'RAM 재장착',
+    desc:    '메모리 분리·접점 청소·재삽입',
+  },
+  {
+    context: 'HW_REPAIR_GPU',
+    icon:    '🛠️',
+    title:   'GPU 재장착',
+    desc:    '그래픽카드 분리·전원·재삽입',
+  },
 ];
 
 interface Props {

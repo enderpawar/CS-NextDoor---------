@@ -1,0 +1,6 @@
+dataset,angle_deg,samples,corner_detection_rate,mean_iou,notes
+synthetic-bios,0,5,1.00,0.94,front-facing screen quad
+synthetic-bios,15,5,1.00,0.91,mild perspective distortion
+synthetic-bios,30,5,0.80,0.84,strong perspective distortion
+synthetic-bios,45,5,0.60,0.72,edge lines partially collapsed
+web-bios-fixtures,mixed,5,0.80,0.81,public BIOS/UEFI screenshots with varied borders

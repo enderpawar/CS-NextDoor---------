@@ -103,10 +103,14 @@ function WorkflowStep({
 function HypoCard({
   hypo,
   status,
+  stepIndex,
+  isLast,
   onStatus,
 }: {
   hypo: Hypothesis;
   status: HypoStatus;
+  stepIndex: number;
+  isLast: boolean;
   onStatus: (id: string, next: HypoStatus) => void;
 }) {
   const confidencePct = Math.round(hypo.confidence * 100);
@@ -115,63 +119,78 @@ function HypoCard({
     : confidencePct >= 50
       ? 'var(--color-warning)'
       : 'var(--color-text-hint)';
+  const stepLetter = String.fromCharCode(65 + stepIndex);
+  const statusLabel: Record<HypoStatus, string> = {
+    idle: '대기',
+    trying: '시도 중',
+    checking: '결과 확인',
+    done: '해결됨',
+    failed: '다음 단계로',
+  };
 
   return (
-    <article className={`nd-hypothesis-card is-${status}`}>
-      <div className="nd-hypothesis-meta">
-        <span className={`nd-hypothesis-priority priority-${hypo.priority.toLowerCase()}`}>{hypo.priority}</span>
-        <span className="nd-hypothesis-confidence-pill">확신도 {confidencePct}%</span>
+    <div className={`nd-guide-pipeline-item is-${status}${isLast ? ' is-last' : ''}`}>
+      <div className="nd-guide-pipeline-rail" aria-hidden="true">
+        <span className={`nd-guide-step-marker is-${status}`}>{status === 'done' ? '✓' : stepLetter}</span>
+        {!isLast && <span className={`nd-guide-step-line is-${status}`} />}
       </div>
-      <div className="nd-hypothesis-head">
-        <h4 className="nd-hypothesis-title">{hypo.title}</h4>
-      </div>
-      <p className="nd-hypothesis-kicker">지금 해볼 조치</p>
-      <p className="nd-hypothesis-desc">{hypo.description}</p>
-      <div className="nd-hypothesis-confidence">
-        <div className="nd-progress">
-          <div className="nd-progress-fill" style={{ width: `${confidencePct}%`, background: tone }} />
+      <article className={`nd-hypothesis-card nd-guide-step-card is-${status}`}>
+        <div className="nd-hypothesis-meta">
+          <span className={`nd-hypothesis-priority priority-${hypo.priority.toLowerCase()}`}>{stepLetter}</span>
+          <span className={`nd-guide-status-pill is-${status}`}>{statusLabel[status]}</span>
+          <span className="nd-hypothesis-confidence-pill">확신도 {confidencePct}%</span>
         </div>
-        <span className="nd-hypothesis-percent">우선 확인</span>
-      </div>
-      {hypo.confidence < 0.6 && (
-        <div className="nd-confidence-warn-banner" role="alert">
-          <span className="nd-confidence-warn-icon" aria-hidden="true">⚠</span>
-          <span>확신도 {confidencePct}% — 수리기사 상담을 권장합니다.</span>
+        <div className="nd-hypothesis-head">
+          <h4 className="nd-hypothesis-title">{hypo.title}</h4>
         </div>
-      )}
-      <div className="nd-hypothesis-actions">
-        {status === 'idle' && (
-          <button type="button" className="nd-chip-button" onClick={() => onStatus(hypo.id, 'trying')}>
-            이 조치 시도하기
-          </button>
+        <p className="nd-hypothesis-kicker">해결 가이드라인 {stepLetter}</p>
+        <p className="nd-hypothesis-desc">{hypo.description}</p>
+        <div className="nd-hypothesis-confidence">
+          <div className="nd-progress">
+            <div className="nd-progress-fill" style={{ width: `${confidencePct}%`, background: tone }} />
+          </div>
+          <span className="nd-hypothesis-percent">우선 확인</span>
+        </div>
+        {hypo.confidence < 0.6 && (
+          <div className="nd-confidence-warn-banner" role="alert">
+            <span className="nd-confidence-warn-icon" aria-hidden="true">⚠</span>
+            <span>확신도 {confidencePct}% - 수리기사 상담을 권장합니다.</span>
+          </div>
         )}
-        {status === 'trying' && (
-          <>
-            <button type="button" className="nd-chip-button accent" onClick={() => onStatus(hypo.id, 'checking')}>
-              해봤어요
+        <div className="nd-hypothesis-actions">
+          {status === 'idle' && (
+            <button type="button" className="nd-chip-button" onClick={() => onStatus(hypo.id, 'trying')}>
+              이 단계 시도하기
             </button>
-            <button type="button" className="nd-chip-button muted" onClick={() => onStatus(hypo.id, 'failed')}>
-              효과 없어요
-            </button>
-          </>
-        )}
-        {status === 'checking' && (
-          <div className="nd-hypo-check-branch">
-            <p className="nd-hypo-check-prompt">시도 후 증상이 사라졌나요?</p>
-            <div className="nd-hypo-check-actions">
+          )}
+          {status === 'trying' && (
+            <>
               <button type="button" className="nd-chip-button accent" onClick={() => onStatus(hypo.id, 'done')}>
                 해결됐어요
               </button>
               <button type="button" className="nd-chip-button muted" onClick={() => onStatus(hypo.id, 'failed')}>
-                아직 안 됐어요
+                효과 없어요
               </button>
+            </>
+          )}
+          {status === 'checking' && (
+            <div className="nd-hypo-check-branch">
+              <p className="nd-hypo-check-prompt">시도 후 증상이 사라졌나요?</p>
+              <div className="nd-hypo-check-actions">
+                <button type="button" className="nd-chip-button accent" onClick={() => onStatus(hypo.id, 'done')}>
+                  해결됐어요
+                </button>
+                <button type="button" className="nd-chip-button muted" onClick={() => onStatus(hypo.id, 'failed')}>
+                  아직 안 됐어요
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-        {status === 'done' && <span className="nd-status-pill success">완료</span>}
-        {status === 'failed' && <span className="nd-status-pill error">추가 점검 필요</span>}
-      </div>
-    </article>
+          )}
+          {status === 'done' && <span className="nd-status-pill success">완료</span>}
+          {status === 'failed' && <span className="nd-status-pill error">다음 단계로 이동</span>}
+        </div>
+      </article>
+    </div>
   );
 }
 
@@ -626,14 +645,20 @@ export default function ElectronDashboard({
               return (
                 <div key={`ai-${index}`} className="nd-message">
                   <div className="nd-bubble ai">
+                    <div className="nd-guide-header">
+                      <span className="nd-guide-eyebrow">해결 가이드라인</span>
+                      <strong>A부터 Z까지 위에서 아래로 확인하세요</strong>
+                    </div>
                     <p className="nd-bubble-intro">
                       {message.response.immediateAction || `${message.response.hypotheses.length}가지 가능성을 찾았습니다. 가능성 높은 조치부터 순서대로 확인해 보세요.`}
                     </p>
-                    <div className="nd-hypothesis-row">
-                      {message.response.hypotheses.map(hypo => (
+                    <div className="nd-guide-pipeline" aria-label="단계별 해결 가이드라인">
+                      {message.response.hypotheses.map((hypo, stepIndex) => (
                         <HypoCard
                           key={hypo.id}
                           hypo={hypo}
+                          stepIndex={stepIndex}
+                          isLast={stepIndex === message.response.hypotheses.length - 1}
                           status={hypoStatuses[hypo.id] ?? 'idle'}
                           onStatus={(id, next) => setHypoStatuses(prev => ({ ...prev, [id]: next }))}
                         />

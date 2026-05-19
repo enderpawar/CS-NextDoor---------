@@ -115,7 +115,15 @@ export type GuideContext =
   | 'APP_NOT_OPENING'    // 프로그램 실행 불가, 오류 팝업
   | 'NETWORK_ISSUE'      // 인터넷, Wi-Fi, DNS, 공유기 문제
   | 'BLUE_SCREEN'        // BSOD, 오류 코드, 자동 재부팅
-  | 'BIOS_BOOT';         // BIOS/부팅 순서/Secure Boot/Windows 설치
+  | 'BIOS_BOOT'          // BIOS/부팅 순서/Secure Boot/Windows 설치
+  | 'HW_REPAIR_RAM'      // 케이스 분해 후 RAM 재장착·접점 청소
+  | 'HW_REPAIR_GPU';     // 케이스 분해 후 GPU 재장착·전원 케이블 확인
+
+// HW 조치 컨텍스트 판별 헬퍼 — 프롬프트·UI·CV 분기에서 재사용
+export const HW_REPAIR_CONTEXTS: readonly GuideContext[] = ['HW_REPAIR_RAM', 'HW_REPAIR_GPU'] as const;
+export function isHwRepairContext(context: GuideContext): boolean {
+  return HW_REPAIR_CONTEXTS.includes(context);
+}
 
 export interface GuideMessage {
   role: 'user' | 'model';
@@ -142,9 +150,18 @@ export interface GuideOcrRegion {
 }
 
 export interface GuideArTarget {
-  targetId: string;
+  targetId?: string;
   label: string;
   reason?: string;
+  // 'click' = 화면 UI 클릭(초록), 'action' = 물리 부품 조치(주황 점선). 기본값 'click'.
+  mode?: 'click' | 'action';
+  bbox?: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    unit?: 'normalized1000' | 'normalized01' | 'pixel';
+  };
 }
 
 // ── CV Harness / Frame Analysis ──────────────────────────────────────────────

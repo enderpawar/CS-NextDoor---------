@@ -44,10 +44,24 @@ data/
 - **YouTube 사용 시**: README References에 URL + 채널명 명시 (카피 감점 회피)
 - **ground-truth.csv 컬럼**: `filename,vendor,angle_deg,lighting,top_menu_text,notes`
 
+### `data/bios/real-capture/`
+- **목적**: 실제 카메라 입력 조건에서 OpenCV 전처리·품질 게이트·BIOS 영역 검출을 평가한다.
+- **기준 화면**: MSI Click BIOS 5 `Boot` 기본 화면 + `Boot Option #1` 팝업.
+- **수량**: 22장 curated still image. 실제 파일은 `data/bios/ami/real-capture/`에 배치한다.
+- **조건**: 정면, 좌/우 15°, 좌/우 30°, 상하 tilt, dark, bright, glare, blur, partial crop, far, handheld shake.
+- **평가 스크립트**: `python notebooks/evaluate_real_capture_dataset.py`.
+- **결과물**: `docs/ablation-results/real-bios-*-results.csv`와 `docs/cv-pipeline/real-bios-evaluation-gallery.png`.
+
 ### `data/live-frames/<scenario>/`
 - **각 시나리오 영상 1~2개**, 30~60초 분량
 - **수동 라벨링**: 영상 보면서 "실제 화면 전환 발생 시각"을 `ground-truth.csv`에 timestamp로 기록
 - **컬럼**: `video_filename,event_timestamp_sec,event_type,notes`
+
+### `data/live-frames/real-video-ground-truth.csv`
+- **목적**: 실제 화면 녹화/스마트폰 촬영 영상에서 대표 프레임을 샘플링해 end-to-end OpenCV gate를 평가한다.
+- **추천 수량**: 영상 2개 이상, 총 50~100프레임.
+- **컬럼**: `video_filename,frame_index,timestamp_sec,screen_id,has_popup,quality_label,expected_change,notes`.
+- **사용 예**: `boot-main`에서 `boot-popup`으로 바뀌는 순간을 `expected_change=true`로 라벨링한다.
 
 ### `data/live-frames/quality-mix/`
 - 정상/블러/과노출/저조도/흔들림 비율 균등하게 ~200장

@@ -73,7 +73,7 @@ const CLAHE_CLIP  = 2.0;
 const CLAHE_GRID  = 8;
 const ADAPT_BLOCK = 11;   // Adaptive Threshold block size (홀수)
 const ADAPT_C     = 2;    // Adaptive Threshold C 상수
-const MIN_CC_AREA = 50;   // Connected Component 최소 픽셀 수
+const MIN_CC_AREA = 90;   // Connected Component 최소 픽셀 수
 const HOUGH_VOTE  = 80;   // HoughLinesP accumulator threshold
 const HOUGH_MIN   = 50;   // 최소 선 길이 (px)
 const HOUGH_GAP   = 10;   // 최대 선 간격 (px)
@@ -106,10 +106,10 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
 
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-    cv.Canny(gray, edges, 50, 150);
+    cv.Canny(gray, edges, 35, 120);
     cv.HoughLinesP(edges, lines, 1, Math.PI / 180, HOUGH_VOTE, HOUGH_MIN, HOUGH_GAP);
 
-    const corners = extractQuadCorners(lines, rgba.width, rgba.height);
+    const corners = extractQuadCorners(edges, lines, rgba.width, rgba.height);
     if (corners) {
       detectedCorners = corners.src;   // AR 오버레이용 — 원본 프레임 좌표
       const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.src.flat());
@@ -198,9 +198,9 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
     // ── Step 2: Canny + HoughLinesP → 화면 경계 4 모서리 추출 ───────────────
-    cv.Canny(gray, edges, 50, 150);
+    cv.Canny(gray, edges, 35, 120);
     cv.HoughLinesP(edges, lines, 1, Math.PI / 180, HOUGH_VOTE, HOUGH_MIN, HOUGH_GAP);
-    const corners = extractQuadCorners(lines, rgba.width, rgba.height);
+    const corners = extractQuadCorners(edges, lines, rgba.width, rgba.height);
 
     // ── Step 3: Homography + warpPerspective — 정면화 ─────────────────────
     if (corners) {
@@ -293,6 +293,110 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
  * 좌표 합성(axis-aligned)이 아닌 교차점 계산을 사용한다.
  */
 function extractQuadCorners(
+  edges: any,
+  lines: any,
+  width: number,
+  height: number,
+): { src: number[][]; dst: number[][] } | null {
+  return extractQuadCornersFromContours(edges, width, height)
+    ?? extractQuadCornersFromLines(lines, width, height);
+}
+
+function makeQuadResult(corners: number[][], width: number, height: number): { src: number[][]; dst: number[][] } | null {
+  const orderedCorners = orderCornersClockwise(corners);
+  const [tl, tr, br, bl] = orderedCorners;
+
+  const quadW = Math.max(distance(tl!, tr!), distance(bl!, br!));
+  const quadH = Math.max(distance(tl!, bl!), distance(tr!, br!));
+  if (quadW < width * 0.15 || quadH < height * 0.15) return null;
+  if (!isConvexQuad(orderedCorners)) return null;
+
+  const area = polygonArea(orderedCorners);
+  const frameArea = width * height;
+  if (area < frameArea * 0.08 || area > frameArea * 0.96) return null;
+
+  return {
+    src: orderedCorners,
+    dst: [
+      [0, 0],
+      [width - 1, 0],
+      [width - 1, height - 1],
+      [0, height - 1],
+    ],
+  };
+}
+
+function extractQuadCornersFromContours(
+  edges: any,
+  width: number,
+  height: number,
+): { src: number[][]; dst: number[][] } | null {
+  const work = new cv.Mat();
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
+
+  try {
+    cv.dilate(edges, work, kernel, new cv.Point(-1, -1), 1);
+    cv.morphologyEx(work, work, cv.MORPH_CLOSE, kernel);
+    cv.findContours(work, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    let best: { corners: number[][]; score: number } | null = null;
+    const frameArea = width * height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    for (let i = 0; i < contours.size(); i++) {
+      const contour = contours.get(i);
+      try {
+        const area = cv.contourArea(contour);
+        if (area < frameArea * 0.08 || area > frameArea * 0.96) continue;
+
+        const perimeter = cv.arcLength(contour, true);
+        for (const epsilonRatio of [0.015, 0.02, 0.03, 0.045]) {
+          const approx = new cv.Mat();
+          try {
+            cv.approxPolyDP(contour, approx, perimeter * epsilonRatio, true);
+            if (approx.rows !== 4) continue;
+
+            const corners = matPointsToArray(approx);
+            const result = makeQuadResult(corners, width, height);
+            if (!result) continue;
+
+            const bounds = boundingBox(result.src);
+            const quadCenterX = bounds.x + bounds.w / 2;
+            const quadCenterY = bounds.y + bounds.h / 2;
+            const centerPenalty = Math.hypot(
+              (quadCenterX - centerX) / width,
+              (quadCenterY - centerY) / height,
+            );
+            const areaRatio = polygonArea(result.src) / frameArea;
+            const aspect = Math.max(bounds.w / Math.max(bounds.h, 1), bounds.h / Math.max(bounds.w, 1));
+            const aspectPenalty = aspect > 3.2 ? (aspect - 3.2) * 0.12 : 0;
+            const score = areaRatio - centerPenalty * 0.28 - aspectPenalty;
+
+            if (!best || score > best.score) {
+              best = { corners: result.src, score };
+            }
+          } finally {
+            approx.delete();
+          }
+        }
+      } finally {
+        contour.delete();
+      }
+    }
+
+    return best ? makeQuadResult(best.corners, width, height) : null;
+  } finally {
+    work.delete();
+    contours.delete();
+    hierarchy.delete();
+    kernel.delete();
+  }
+}
+
+function extractQuadCornersFromLines(
   lines: any,
   width: number,
   height: number,
@@ -350,25 +454,7 @@ function extractQuadCorners(
   // 형태로 자기 교차되지 않도록 [TL, TR, BR, BL] CW 순으로 재정렬.
   // 트릭: TL은 x+y가 최소, BR은 x+y가 최대, TR은 x-y가 최대, BL은 x-y가 최소.
   const orderedCorners = orderCornersClockwise(rawCorners as number[][]);
-  const [tl, tr, br, bl] = orderedCorners;
-
-  // 사각형 크기 게이트 — 너무 작으면 노이즈로 판단
-  const quadW = Math.max(distance(tl!, tr!), distance(bl!, br!));
-  const quadH = Math.max(distance(tl!, bl!), distance(tr!, br!));
-  if (quadW < width * 0.15 || quadH < height * 0.15) return null;
-
-  // Convex 검증 — 4개 외적 부호가 모두 동일해야 자기 교차가 없는 단순 다각형
-  if (!isConvexQuad(orderedCorners)) return null;
-
-  return {
-    src: orderedCorners,
-    dst: [
-      [0, 0],
-      [width - 1, 0],
-      [width - 1, height - 1],
-      [0, height - 1],
-    ],
-  };
+  return makeQuadResult(orderedCorners, width, height);
 }
 
 /**
@@ -389,6 +475,37 @@ function orderCornersClockwise(points: number[][]): number[][] {
     if (diff < minDiff) { minDiff = diff; bl = p; }
   }
   return [tl, tr, br, bl];
+}
+
+function matPointsToArray(mat: any): number[][] {
+  const points: number[][] = [];
+  for (let i = 0; i < mat.rows; i++) {
+    const offset = i * 2;
+    const x = mat.data32S?.[offset] ?? mat.data32F?.[offset] ?? 0;
+    const y = mat.data32S?.[offset + 1] ?? mat.data32F?.[offset + 1] ?? 0;
+    points.push([x, y]);
+  }
+  return points;
+}
+
+function polygonArea(points: number[][]): number {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    area += ((a[0] ?? 0) * (b[1] ?? 0)) - ((b[0] ?? 0) * (a[1] ?? 0));
+  }
+  return Math.abs(area) / 2;
+}
+
+function boundingBox(points: number[][]): { x: number; y: number; w: number; h: number } {
+  const xs = points.map(point => point[0] ?? 0);
+  const ys = points.map(point => point[1] ?? 0);
+  const x0 = Math.min(...xs);
+  const y0 = Math.min(...ys);
+  const x1 = Math.max(...xs);
+  const y1 = Math.max(...ys);
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
 /** 4 모서리가 단순(비교차) convex 사각형인지 검사 — 외적 부호 일치 확인 */
@@ -493,7 +610,7 @@ function collectTextRegions(
 
   return candidates
     .sort((a, b) => b.area - a.area)
-    .slice(0, 28);
+    .slice(0, 8);
 }
 
 function isLikelyTextRegion({
@@ -509,12 +626,14 @@ function isLikelyTextRegion({
   width: number;
   height: number;
 }): boolean {
-  if (area < MIN_CC_AREA) return false;
-  if (w < 4 || h < 4) return false;
-  if (w > width * 0.75 || h > height * 0.25) return false;
+  if (area < Math.max(MIN_CC_AREA, width * height * 0.000025)) return false;
+  if (w < 10 || h < 6) return false;
+  if (w > width * 0.55 || h > height * 0.12) return false;
+  if (h < height * 0.008 || h > height * 0.09) return false;
 
   const ratio = w / Math.max(h, 1);
-  return ratio >= 0.2 && ratio <= 18;
+  const density = area / Math.max(w * h, 1);
+  return ratio >= 0.8 && ratio <= 16 && density >= 0.08 && density <= 0.85;
 }
 
 function mapPointByHomography(x: number, y: number, hInv: any): number[] {
@@ -537,6 +656,17 @@ function mapPointByHomography(x: number, y: number, hInv: any): number[] {
   ];
 }
 
+/**
+ * Tesseract 결과에서 라인 단위 OCR 후보만 추출.
+ *
+ * 설계 원칙:
+ *   - BIOS/설치 화면은 메뉴/버튼이 라인 단위로 클릭됨 → 단어 단위 후보 미사용.
+ *     word 후보를 함께 보내면 Gemini가 "Boot" 단어 하나를 찍어버려 "Boot Option #1"
+ *     라인 전체를 가리키지 못한다. 라인만 보내면 클릭 단위와 1:1 매칭.
+ *   - 신뢰도·의미문자 비율 필터로 노이즈(짧은 기호·OCR 잡음) 제거.
+ *   - OK/F10/ESC 같은 짧은 BIOS 액션은 예외적으로 보존.
+ *   - 최대 50개로 절단 — 백엔드 프롬프트 토큰 절약.
+ */
 function extractOcrRegions(
   // Tesseract.js Page 타입은 런타임 버전별로 optional 필드가 있어 any로 좁게 처리.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -547,52 +677,55 @@ function extractOcrRegions(
 ): GuideOcrRegion[] {
   const regions: GuideOcrRegion[] = [];
   let lineId = 0;
-  let wordId = 0;
 
   for (const block of page.blocks ?? []) {
     for (const paragraph of block.paragraphs ?? []) {
       for (const line of paragraph.lines ?? []) {
         const lineText = normalizeOcrText(line.text);
-        if (lineText.length >= 2) {
-          const region = makeOcrRegion(
-            `ocr-line-${lineId++}`,
-            lineText,
-            line.confidence ?? 0,
-            line.bbox,
-            width,
-            height,
-            homographyInv,
-          );
-          if (region) regions.push(region);
-        }
-
-        for (const word of line.words ?? []) {
-          const wordText = normalizeOcrText(word.text);
-          if (wordText.length < 2) continue;
-          const region = makeOcrRegion(
-            `ocr-word-${wordId++}`,
-            wordText,
-            word.confidence ?? 0,
-            word.bbox,
-            width,
-            height,
-            homographyInv,
-          );
-          if (region) regions.push(region);
-        }
+        if (!isLikelyClickableText(lineText)) continue;
+        const region = makeOcrRegion(
+          `ocr-line-${lineId++}`,
+          lineText,
+          line.confidence ?? 0,
+          line.bbox,
+          width,
+          height,
+          homographyInv,
+        );
+        if (region) regions.push(region);
       }
     }
   }
 
   return regions
-    .filter(region => region.confidence >= 0.35 || region.text.length >= 4)
+    // BIOS 화면은 반사·저대비로 Tesseract 신뢰도가 자주 0.3~0.5에 머무름.
+    // 0.5 컷오프는 "Boot Option #1" 같은 핵심 메뉴 라인을 떨궈서 overlay 매칭 실패 유발 →
+    // 0.3로 완화 + 의미 있는 짧은 액션 fallback. 백엔드 텍스트 매칭이 추가 안전망 역할.
+    .filter(region => region.confidence >= 0.3 || isLikelyClickableText(region.text))
     .sort((a, b) => {
       const ay = a.bbox.y;
       const by = b.bbox.y;
       if (Math.abs(ay - by) > 12) return ay - by;
       return a.bbox.x - b.bbox.x;
     })
-    .slice(0, 80);
+    .slice(0, 50);
+}
+
+/**
+ * 클릭 가능성이 있는 텍스트인지 휴리스틱 검사.
+ * - 일반 텍스트는 길이 ≥ 3
+ * - OK/Yes/No/F1~F12/ESC 같은 짧은 BIOS 액션은 허용
+ * - 영문자 또는 숫자가 최소 2자
+ * - 알파뉴메릭+공백 비율 ≥ 0.6 (특수문자만 있는 OCR 잡음 거부)
+ */
+export function isLikelyClickableText(text: string): boolean {
+  const normalized = text.trim();
+  if (/^(ok|yes|no|esc|del|f(?:1[0-2]|[1-9]))$/i.test(normalized)) return true;
+  if (normalized.length < 3) return false;
+  const alnum = normalized.match(/[A-Za-z0-9가-힣]/g)?.length ?? 0;
+  if (alnum < 2) return false;
+  const meaningful = normalized.match(/[A-Za-z0-9가-힣 ]/g)?.length ?? 0;
+  return meaningful / normalized.length >= 0.6;
 }
 
 function makeOcrRegion(

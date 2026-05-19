@@ -1,0 +1,11 @@
+metric,value,notes
+Real-capture still images,22,External test data folder
+Quality gate accepted,8/22 (36.4%),Laplacian + brightness thresholds
+Quality gate rejected,14/22 (63.6%),Blur/reflection/low-detail stress frames filtered
+Mean sharpness score,0.036,range 0.007-0.092
+Mean Laplacian variance,57.5,range 11.1-147.2
+Mean brightness,0.418,range 0.134-0.625
+ROI/corner detection,14/22 (63.6%),"strict=0, fallback=14"
+Mean Hough line candidates,740.2,range 42-3946
+Mean text ROI candidates,425.1,range 186-869
+OCR availability,0/22 (0.0%),Requires local Tesseract/pytesseract
