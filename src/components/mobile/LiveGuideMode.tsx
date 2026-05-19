@@ -17,11 +17,18 @@
 declare const cv: any;
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { Camera } from 'lucide-react';
 import '../../styles/mobile.css';
 import { useOpenCV }                         from '../../hooks/useOpenCV';
 import { useGeminiLiveGuide }                from '../../hooks/useGeminiLiveGuide';
 import { useLiveFrameCapture }               from '../../hooks/useLiveFrameCapture';
 import type { BiosArOverlay, CvFrameInsightMetrics } from '../../hooks/useLiveFrameCapture';
+import {
+  DIAGNOSTIC_CLIP_LONG_PRESS_MS,
+  buildDiagnosticClipSummary,
+  shouldStartDiagnosticClip,
+  useDiagnosticClipCapture,
+} from '../../hooks/useDiagnosticClipCapture';
 import GuideContextSelector                  from './GuideContextSelector';
 import GoalInputSheet                        from './GoalInputSheet';
 import GuideBubble                           from './GuideBubble';
@@ -29,9 +36,10 @@ import ShootingGuide                         from './ShootingGuide';
 import CvInsightPanel                        from './CvInsightPanel';
 import BiosTypeSelector                      from './BiosTypeSelector';
 import AudioCapture                          from './AudioCapture';
-import type { GuideArTarget, GuideContext, BiosType, GuideOcrRegion } from '../../types';
+import type { GuideArTarget, GuideContext, BiosType, GuideOcrRegion, CvFrameInput } from '../../types';
 import { isHwRepairContext } from '../../types';
 import { compareHist }                       from '../../lib/cv/changeDetection';
+import { analyzeFrame, compareHistograms }   from '../../lib/cv/frameMetrics';
 import {
   detectBiosVendor,
   preprocessBiosFrameForGuide,
@@ -53,6 +61,10 @@ const STATIC_FIRST_GUIDE: Record<GuideContext, string> = {
 };
 
 const SHOW_CC_DEBUG_REGIONS = false;
+const GALLERY_VIDEO_MAX_DURATION_SEC = 15;
+const GALLERY_VIDEO_MAX_SIZE_BYTES = 50 * 1024 * 1024;
+const GALLERY_VIDEO_SAMPLE_FPS = 4;
+const GALLERY_VIDEO_MAX_ANALYSIS_SIDE = 640;
 
 type PageState = 'camera' | 'done';
 type ActionResult = 'none' | 'tried' | 'unresolved';
@@ -61,6 +73,20 @@ interface FrozenFrame {
   dataUrl: string;
   width: number;
   height: number;
+}
+
+interface GalleryVideoFrame {
+  frame: CvFrameInput;
+  imageData: ImageData;
+  jpegBase64: string;
+}
+
+interface GalleryVideoAnalysis {
+  base64: string;
+  rgba: ImageData;
+  width: number;
+  height: number;
+  cvSummary: string;
 }
 
 interface Props {
@@ -76,6 +102,145 @@ function parseBiosFromSummary(cvSummary: string) {
     textRegions: parseInt(cvSummary.match(/biosTextRegions=(\d+)/)?.[1] ?? '0', 10),
     processMs:   parseInt(cvSummary.match(/biosPreprocessMs=(\d+)/)?.[1] ?? '0', 10),
   };
+}
+
+function waitForMediaEvent(target: HTMLMediaElement, eventName: string) {
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      target.removeEventListener(eventName, handleEvent);
+      target.removeEventListener('error', handleError);
+    };
+    const handleEvent = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error(`media ${eventName} failed`));
+    };
+    target.addEventListener(eventName, handleEvent, { once: true });
+    target.addEventListener('error', handleError, { once: true });
+  });
+}
+
+async function seekVideo(video: HTMLVideoElement, timeSec: number) {
+  const target = Math.min(Math.max(0, timeSec), Math.max(0, video.duration - 0.05));
+  if (Math.abs(video.currentTime - target) < 0.01) return;
+  const wait = waitForMediaEvent(video, 'seeked');
+  video.currentTime = target;
+  await wait;
+}
+
+function captureGalleryVideoFrame(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+  timestampMs: number,
+): GalleryVideoFrame | null {
+  if (video.videoWidth <= 0 || video.videoHeight <= 0) return null;
+  const scale = Math.min(1, GALLERY_VIDEO_MAX_ANALYSIS_SIDE / Math.max(video.videoWidth, video.videoHeight));
+  canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+  canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  return {
+    frame: {
+      id: `gallery-video-${Math.round(timestampMs)}`,
+      width: imageData.width,
+      height: imageData.height,
+      data: new Uint8ClampedArray(imageData.data),
+      timestampMs,
+    },
+    imageData,
+    jpegBase64: canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? '',
+  };
+}
+
+async function analyzeGalleryVideo(file: File): Promise<GalleryVideoAnalysis> {
+  if (file.size > GALLERY_VIDEO_MAX_SIZE_BYTES) {
+    throw new Error('video-file-too-large');
+  }
+
+  const video = document.createElement('video');
+  video.preload = 'metadata';
+  video.muted = true;
+  video.playsInline = true;
+  const url = URL.createObjectURL(file);
+
+  try {
+    video.src = url;
+    await waitForMediaEvent(video, 'loadedmetadata');
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      throw new Error('video-duration-unavailable');
+    }
+    if (video.duration > GALLERY_VIDEO_MAX_DURATION_SEC) {
+      throw new Error('video-too-long');
+    }
+
+    const canvas = document.createElement('canvas');
+    const sampleCount = Math.max(3, Math.floor(video.duration * GALLERY_VIDEO_SAMPLE_FPS));
+    const frames: GalleryVideoFrame[] = [];
+    for (let index = 0; index < sampleCount; index += 1) {
+      const timeSec = sampleCount === 1 ? 0 : (index / (sampleCount - 1)) * Math.max(0, video.duration - 0.05);
+      await seekVideo(video, timeSec);
+      const captured = captureGalleryVideoFrame(video, canvas, timeSec * 1000);
+      if (captured?.jpegBase64) frames.push(captured);
+    }
+
+    if (frames.length < 3) throw new Error('video-no-frames');
+
+    const candidates = frames.map((frame, index) => {
+      const previous = index > 0 ? analyzeFrame(frames[index - 1]!.frame).histogram : undefined;
+      return { ...frame, metrics: analyzeFrame(frame.frame, previous) };
+    });
+    const brightnessValues = candidates.map(candidate => candidate.metrics.brightnessMean);
+    const sceneChangeScores = candidates.map((candidate, index) => {
+      if (candidate.metrics.sceneChangeScore !== undefined) return Math.max(0, Math.min(1, candidate.metrics.sceneChangeScore));
+      if (index === 0) return 0;
+      return Math.max(0, Math.min(1, 1 - compareHistograms(
+        candidates[index - 1]?.metrics.histogram ?? [],
+        candidate.metrics.histogram,
+      )));
+    });
+    const brightnessDeltas = brightnessValues
+      .slice(1)
+      .map((value, index) => Math.abs(value - (brightnessValues[index] ?? value)));
+    const selectedIndex = brightnessDeltas.length > 0
+      ? brightnessDeltas.indexOf(Math.max(...brightnessDeltas)) + 1
+      : 0;
+    const fallback = [...candidates].sort((a, b) => b.metrics.qualityScore - a.metrics.qualityScore)[0];
+    const representative = candidates[selectedIndex] ?? fallback ?? candidates[0];
+    if (!representative?.jpegBase64) throw new Error('video-no-representative');
+
+    const changedFrames = brightnessDeltas.filter(delta => delta >= Math.max(0.06, Math.max(...brightnessDeltas) * 0.55)).length;
+    const cvSummary = [
+      buildDiagnosticClipSummary({
+        durationMs: video.duration * 1000,
+        sampledFrames: frames.length,
+        selectedFrames: Math.max(1, changedFrames),
+        brightnessValues,
+        sceneChangeScores,
+        audioAvailable: false,
+        audioSamples: [],
+      }).replace('captureMode=clip', 'captureMode=galleryVideo'),
+      `videoDurationMs=${Math.round(video.duration * 1000)}`,
+      `videoSampleFps=${GALLERY_VIDEO_SAMPLE_FPS}`,
+      `selectedFrameAtMs=${Math.round(representative.frame.timestampMs)}`,
+      `sourceMimeType=${file.type || 'unknown'}`,
+    ].join(', ');
+
+    return {
+      base64: representative.jpegBase64,
+      rgba: representative.imageData,
+      width: representative.frame.width,
+      height: representative.frame.height,
+      cvSummary,
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function smoothQuadCorners(
@@ -295,6 +460,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const [audioSheetOpen, setAudioSheetOpen] = useState(false);
   const [biosType,       setBiosType]       = useState<BiosType | null>(null);
   const [biosTypeSource, setBiosTypeSource] = useState<'auto' | 'manual' | null>(null);
+  const [clipCaptureState, setClipCaptureState] = useState<'idle' | 'arming' | 'recording' | 'analyzing'>('idle');
 
   // Task 6 — 자동 vendor 감지 (Gemini 응답 텍스트 파싱)
   const [autoVendorChip, setAutoVendorChip] = useState<BiosType | null>(null);
@@ -318,6 +484,13 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const capturedHistRef = useRef<any>(null);
   const initialQuestionRef = useRef(initialQuestion.trim());
   const taskGoalRef = useRef(initialQuestion.trim());
+  const capturePointerRef = useRef<{
+    pointerId: number;
+    startedAt: number;
+    longPressTimer: number | null;
+    clipStarted: boolean;
+    finished: boolean;
+  } | null>(null);
 
   /** taskGoal state + ref를 함께 갱신 — 비동기 콜백은 ref.current를, 렌더링은 state를 사용 */
   const setTaskGoal = useCallback((value: string) => {
@@ -337,6 +510,12 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
 
   const { cvReady } = useOpenCV();
   const guide = useGeminiLiveGuide();
+  const diagnosticClip = useDiagnosticClipCapture({
+    videoRef,
+    canvasRef,
+    cvReady,
+    context,
+  });
 
   const clearFrozenGuideState = useCallback(() => {
     setFrozenFrame(null);
@@ -409,6 +588,26 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setAutoVendorChip(vendor);
     window.setTimeout(() => setAutoVendorChip(null), 4000);
   }, [biosTypeSource]);
+
+  const isWaitingForActionResult =
+    !!guide.streamText
+    && guide.session?.status === 'ACTIVE'
+    && !guide.isStreaming
+    && resolutionStep !== 'hidden';
+  const nextButtonDisabled =
+    guide.captureState !== 'idle'
+    || clipCaptureState === 'analyzing'
+    || guide.session?.status !== 'ACTIVE'
+    || isWaitingForActionResult;
+  const resolutionCaptureDisabled =
+    guide.captureState !== 'idle'
+    || clipCaptureState !== 'idle'
+    || guide.session?.status !== 'ACTIVE';
+  const questionSubmitDisabled =
+    guide.captureState !== 'idle'
+    || clipCaptureState !== 'idle'
+    || guide.session?.status !== 'ACTIVE'
+    || !questionDraft.trim();
 
   // ── 갤러리 이미지 업로드 → CV 전처리 → Gemini 전송 ──────────────────────
   const handleGallerySelect = useCallback(
@@ -682,6 +881,135 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     biosOcrRegions,
     setTaskGoal,
   ]);
+
+  const finishDiagnosticClipCapture = useCallback(async (fallbackToPhoto = true) => {
+    const pointerState = capturePointerRef.current;
+    if (pointerState) pointerState.finished = true;
+    setClipCaptureState('analyzing');
+    setQualityText('깜빡임/소리 분석 중...');
+
+    const result = await diagnosticClip.finishClipCapture();
+    if (!result) {
+      setClipCaptureState('idle');
+      capturePointerRef.current = null;
+      setQualityText('클립이 너무 짧아 사진 1장으로 분석할게요.');
+      if (fallbackToPhoto) await handleManualCapture();
+      return;
+    }
+
+    if (guide.isSendingRef.current || guide.session?.status !== 'ACTIVE') {
+      setClipCaptureState('idle');
+      capturePointerRef.current = null;
+      return;
+    }
+
+    setFrozenFrame({
+      dataUrl: `data:image/jpeg;base64,${result.frameBase64}`,
+      width: result.width,
+      height: result.height,
+    });
+    if (result.ocrRegions) setBiosOcrRegions(result.ocrRegions);
+
+    const shouldUseInitialQuestion = !guide.streamText && !!initialQuestionRef.current;
+    const question = shouldUseInitialQuestion ? initialQuestionRef.current : '';
+    const effectiveGoal = taskGoalRef.current || question;
+    if (effectiveGoal && !taskGoalRef.current) setTaskGoal(effectiveGoal);
+
+    try {
+      await guide.sendFrame(
+        result.frameBase64,
+        null,
+        [
+          result.cvSummary,
+          question ? 'userQuestion=true' : 'userQuestion=false',
+          question
+            ? (guide.streamText ? 'guidePhase=question-followup' : 'guidePhase=question-initial')
+            : (guide.streamText ? 'guidePhase=followup' : 'guidePhase=initial'),
+          `previousActionResult=${lastActionResultRef.current}`,
+        ].join(', '),
+        result.ocrRegions,
+        question || undefined,
+        effectiveGoal || undefined,
+      );
+      if (shouldUseInitialQuestion) initialQuestionRef.current = '';
+      lastActionResultRef.current = 'none';
+      setQualityText('');
+    } catch {
+      // sendFrame 내부에서 처리됨
+    } finally {
+      setClipCaptureState('idle');
+      capturePointerRef.current = null;
+    }
+  }, [diagnosticClip, guide, handleManualCapture, setTaskGoal]);
+
+  const handleCapturePointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    if (nextButtonDisabled || guide.isSendingRef.current || guide.session?.status !== 'ACTIVE') return;
+    if (clipCaptureState !== 'idle') return;
+    if (capturePointerRef.current) return;
+
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const pointerState = {
+      pointerId: e.pointerId,
+      startedAt: performance.now(),
+      longPressTimer: null as number | null,
+      clipStarted: false,
+      finished: false,
+    };
+    capturePointerRef.current = pointerState;
+    setClipCaptureState('arming');
+
+    pointerState.longPressTimer = window.setTimeout(() => {
+      const activeState = capturePointerRef.current;
+      if (!activeState || activeState.pointerId !== e.pointerId || activeState.finished) return;
+      activeState.clipStarted = true;
+      setClipCaptureState('recording');
+      setQualityText('촬영 중');
+      void diagnosticClip.beginClipCapture(() => {
+        void finishDiagnosticClipCapture(false);
+      }).then(started => {
+        const currentState = capturePointerRef.current;
+        if (started || !currentState || currentState.pointerId !== e.pointerId || currentState.finished) return;
+        currentState.finished = true;
+        capturePointerRef.current = null;
+        setClipCaptureState('idle');
+        setQualityText('카메라가 준비되지 않았어요. 다시 시도해주세요.');
+      });
+    }, DIAGNOSTIC_CLIP_LONG_PRESS_MS);
+  }, [clipCaptureState, diagnosticClip, finishDiagnosticClipCapture, guide.isSendingRef, guide.session?.status, nextButtonDisabled]);
+
+  const endCapturePointer = useCallback(async (
+    e: React.PointerEvent<HTMLButtonElement>,
+    mode: 'up' | 'cancel',
+  ) => {
+    const pointerState = capturePointerRef.current;
+    if (!pointerState || pointerState.pointerId !== e.pointerId || pointerState.finished) return;
+
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    if (pointerState.longPressTimer !== null) {
+      window.clearTimeout(pointerState.longPressTimer);
+      pointerState.longPressTimer = null;
+    }
+
+    const elapsedMs = performance.now() - pointerState.startedAt;
+    if (pointerState.clipStarted || shouldStartDiagnosticClip(elapsedMs)) {
+      pointerState.clipStarted = true;
+      await finishDiagnosticClipCapture(mode === 'up');
+      return;
+    }
+
+    diagnosticClip.cancelClipCapture();
+    capturePointerRef.current = null;
+    setClipCaptureState('idle');
+    if (mode === 'up') await handleManualCapture();
+  }, [diagnosticClip, finishDiagnosticClipCapture, handleManualCapture]);
+
+  useEffect(() => {
+    return () => {
+      const pointerState = capturePointerRef.current;
+      if (pointerState?.longPressTimer != null) window.clearTimeout(pointerState.longPressTimer);
+      diagnosticClip.cancelClipCapture();
+    };
+  }, [diagnosticClip]);
 
   const handleQuestionSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1078,22 +1406,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
 
   // ── 카메라 화면 ─────────────────────────────────────────────────────────
   const displayText = guide.streamText || STATIC_FIRST_GUIDE[context];
-  const isWaitingForActionResult =
-    !!guide.streamText
-    && guide.session?.status === 'ACTIVE'
-    && !guide.isStreaming
-    && resolutionStep !== 'hidden';
-  const nextButtonDisabled =
-    guide.captureState !== 'idle'
-    || guide.session?.status !== 'ACTIVE'
-    || isWaitingForActionResult;
-  const resolutionCaptureDisabled =
-    guide.captureState !== 'idle'
-    || guide.session?.status !== 'ACTIVE';
-  const questionSubmitDisabled =
-    guide.captureState !== 'idle'
-    || guide.session?.status !== 'ACTIVE'
-    || !questionDraft.trim();
   const selectedOcrTarget = guide.arTarget
     ? biosOcrRegions.find(region => region.id === guide.arTarget?.targetId) ?? null
     : null;
@@ -1377,46 +1689,58 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
 
       {/* ── Thumb-zone 액션 바 (세션 ACTIVE 후 노출) ── */}
       {!showShootingGuide && (
-        <div className="nd-action-bar" role="toolbar" aria-label="진단 도구">
-          {/* 보조: 비프음 진단 */}
-          <button
-            type="button"
-            className="nd-action-bar-btn"
-            onClick={() => setAudioSheetOpen(true)}
-            aria-label="비프음 진단 열기"
-          >
-            <span className="nd-action-bar-icon">🎙</span>
-            <span className="nd-action-bar-label">
-              {biosTypeSource === 'auto' && biosType ? `${biosType} 비프음` : '비프음'}
-            </span>
-          </button>
+        <>
+          <div className="nd-action-bar" role="toolbar" aria-label="진단 도구">
+            {/* 보조: 비프음 진단 */}
+            <button
+              type="button"
+              className="nd-action-bar-btn"
+              onClick={() => setAudioSheetOpen(true)}
+              aria-label="비프음 진단 열기"
+            >
+              <span className="nd-action-bar-icon">🎙</span>
+              <span className="nd-action-bar-label">
+                {biosTypeSource === 'auto' && biosType ? `${biosType} 비프음` : '비프음'}
+              </span>
+            </button>
 
-          {/* 주요: 다음 단계 (수동 캡처) */}
-          <button
-            type="button"
-            className="nd-action-bar-btn nd-action-bar-primary"
-            onClick={() => handleManualCapture()}
-            disabled={nextButtonDisabled}
-            aria-label="현재 화면 분석 요청"
-          >
-            {guide.captureState !== 'idle'
-              ? <span className="nd-action-bar-analyzing">분석 중…</span>
-              : <><span className="nd-action-bar-icon">✓</span><span className="nd-action-bar-label">{guide.streamText ? '다음 화면 분석' : '현재 화면 분석'}</span></>
-            }
-          </button>
+            {/* 주요: 다음 단계 (수동 캡처) */}
+            <button
+              type="button"
+              className="nd-action-bar-btn nd-action-bar-primary nd-action-bar-capture"
+              onPointerDown={handleCapturePointerDown}
+              onPointerUp={e => void endCapturePointer(e, 'up')}
+              onPointerCancel={e => void endCapturePointer(e, 'cancel')}
+              onClick={e => {
+                if (e.detail === 0 && clipCaptureState === 'idle' && !nextButtonDisabled) void handleManualCapture();
+              }}
+              disabled={nextButtonDisabled}
+              aria-label={guide.streamText ? '다음 화면 촬영 후 분석' : '현재 화면 촬영 후 분석'}
+              title="탭: 사진 · 길게: 깜빡임/소리"
+            >
+              {clipCaptureState === 'recording' && <span className="nd-capture-progress-ring" aria-hidden="true" />}
+              {clipCaptureState === 'recording'
+                ? <span className="nd-action-bar-analyzing">촬영 중</span>
+                : clipCaptureState === 'analyzing' || guide.captureState !== 'idle'
+                ? <span className="nd-action-bar-analyzing">분석 중…</span>
+                : <Camera className="nd-action-bar-camera-icon" size={28} strokeWidth={2.4} aria-hidden="true" />
+              }
+            </button>
 
-          {/* 보조: 갤러리 사진 업로드 */}
-          <button
-            type="button"
-            className="nd-action-bar-btn"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={guide.captureState !== 'idle'}
-            aria-label="갤러리에서 사진 선택"
-          >
-            <span className="nd-action-bar-icon">📁</span>
-            <span className="nd-action-bar-label">갤러리</span>
-          </button>
-        </div>
+            {/* 보조: 갤러리 사진 업로드 */}
+            <button
+              type="button"
+              className="nd-action-bar-btn"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={guide.captureState !== 'idle' || clipCaptureState !== 'idle'}
+              aria-label="갤러리에서 사진 선택"
+            >
+              <span className="nd-action-bar-icon">📁</span>
+              <span className="nd-action-bar-label">갤러리</span>
+            </button>
+          </div>
+          <div className="nd-capture-hint">탭: 사진 · 길게: 깜빡임/소리</div>
+        </>
       )}
 
       {/* 갤러리 파일 피커 (hidden) — capture 없으면 모바일 갤러리 열림 */}

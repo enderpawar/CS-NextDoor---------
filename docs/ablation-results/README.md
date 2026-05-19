@@ -9,13 +9,14 @@
 ## 예정 파일
 
 ### 모듈 1 (BIOS 파이프라인)
-| 파일 | 내용 |
-|---|---|
-| `bios-pipeline-ablation.csv` | 전처리 단계 16조합 × OCR 정확도 |
-| `bios-angle-accuracy.png` | 카메라 각도(0/15/30/45°) 정확도 |
-| `bios-corner-detection.csv` | AR 화면 외곽 검출률 / polygon IoU 요약 |
-| `bios-clahe-gridsearch.png` | CLAHE clipLimit × tileSize 히트맵 |
-| `bios-threshold-methods.csv` | Otsu / Gaussian / Mean 비교 |
+| 파일 | 내용 | 데이터 소스 |
+|---|---|---|
+| `bios-ablation.csv` / `bios-pipeline-ablation.csv` | 전처리 16조합 × 평균 텍스트-ROI 후보 수 | **실촬영 22장** (proxy 측정) |
+| `bios-ablation.png` | 16조합 막대그래프 (전체 파이프라인 빨간 강조) | **실촬영 22장** |
+| `bios-clahe-gridsearch.csv` / `.png` | CLAHE clipLimit × tileSize × block × C 144조합 히트맵 | **실촬영 22장** |
+| `bios-angle-accuracy.png` | (Tesseract 미설치로 미측정 — 향후 OCR 환경에서 재생성) | — |
+| `bios-corner-detection.csv` | 합성 데이터 기반 quad 검출 IoU 요약(보존용) | synthetic + web fixtures |
+| `real-bios-*.csv` | 실촬영 평가 raw 결과 | **실촬영 22장** |
 
 ### AR 화면 외곽 검출 요약
 

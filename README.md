@@ -161,21 +161,30 @@ OpenCV 적용 전후를 비교하면 다음과 같습니다.
 
 #### 단계별 시각화
 
+`docs/cv-pipeline/bios-pipeline-stages.png` 와 `docs/cv-pipeline/bios-threshold-comparison.png` 는 실제 촬영본(`C:\Users\user\Desktop\test data` 중 `KakaoTalk_20260519_125632555_17.jpg`)을 입력으로 다시 생성했습니다. 합성 BIOS 렌더링 이미지가 아니라 같은 실촬영 프레임이 단계별로 어떻게 변환되는지, Otsu/Mean/Gaussian 임계화에서 텍스트 후보가 어떻게 달라지는지 직접 확인할 수 있습니다.
+
 | BIOS 파이프라인 단계 | Threshold 방법 비교 |
 |:---:|:---:|
 | ![BIOS Pipeline Stages](docs/cv-pipeline/bios-pipeline-stages.png) | ![Threshold Comparison](docs/cv-pipeline/bios-threshold-comparison.png) |
 
-#### Ablation Study — 단계별 기여도
+> 같은 실촬영 프레임에서 Otsu는 82개, Adaptive Mean은 267개(주변 키보드·반사 노이즈까지 포착), **Adaptive Gaussian은 130개의 텍스트 ROI 후보**를 분리했습니다. Adaptive Gaussian이 잡음과 신호 사이의 균형이 가장 좋습니다.
 
-| 단계 조합 | 설명 | 선택 근거 |
-|---|---|---|
-| 원본만 | Tesseract 직접 적용 | 기준선 — 저대비·기울어짐에 약함 |
-| + Homography | 정면화 보정 | 카메라 각도 편차 제거 |
-| + Homography + CLAHE | 대비 강화 | BIOS 화면 특유의 균일 저대비 보상 |
-| + Homography + CLAHE + AdaptThresh | 이진화 | 불균일 조명에서 Otsu 대비 강건 |
-| **전체 파이프라인 + CC** | **텍스트 ROI 분리** | **Tesseract.js 전달 이미지 최적화** |
+#### Ablation Study — 단계별 기여도 (실촬영 22장 proxy 측정)
 
-현재 제출 자료에서는 synthetic OCR ablation 그래프를 핵심 근거로 사용하지 않았습니다. 로컬 Tesseract가 없는 환경에서는 OCR 점수가 0으로 기록되어 빈 그래프처럼 보일 수 있기 때문입니다. 대신 실제 촬영 BIOS 22장에 대해 OpenCV가 품질 게이트, BIOS ROI 후보, 텍스트/에지 후보를 얼마나 만들어내는지 측정한 결과를 근거로 사용했습니다.
+로컬 Tesseract가 없는 환경에서는 OCR 점수가 0으로 기록되어 정량 비교 의미가 사라집니다. 대신 같은 22장 실촬영 프레임에 대해 16개 파이프라인 조합을 모두 실행하고, OCR 직전 단계인 **텍스트 ROI 후보 개수**(connected components 중 텍스트 모양 조건을 만족하는 것)를 proxy로 측정했습니다. 더 많은 후보가 분리될수록 OCR/Vision 모델 입력으로 적합합니다.
+
+![BIOS Ablation (real capture, text-ROI yield)](docs/ablation-results/bios-ablation.png)
+
+| 단계 조합 (homography/clahe/threshold/components) | 평균 텍스트 ROI 후보 | 해석 |
+|---|---:|---|
+| `0011` ~ `0000` (homography off) | **159** | 원본 프레임이 그대로 유지되어 가장 많은 후보 생성. 단 환경 노이즈 포함 |
+| `1000` ~ `1011` (homography on, CLAHE off) | 143 | 정면화 시 일부 영역이 잘려 후보 감소 |
+| **`1111` 전체 파이프라인** | **113** | 정면화 + CLAHE + Threshold + CC 필터 후 가장 신뢰도 높은 후보만 잔존 |
+| `0100` ~ `0111` (CLAHE only, no homography) | 102 | CLAHE 후 후속 단계 없으면 후보 응집 부족 |
+
+> 절대 ROI 수가 많다고 좋은 게 아니라, **노이즈가 제거된 신뢰도 높은 후보** 가 OCR에 유리합니다. 위 차트는 환경 노이즈(키보드·모니터 반사)를 포함한 22장에서 측정한 값이므로, 전체 파이프라인(`1111`)의 113개가 실제 사용에 가장 적합한 값입니다.
+
+상세 데이터: [`bios-ablation.csv`](docs/ablation-results/bios-ablation.csv) · 재실행: `python notebooks/regenerate_real_bios_charts.py`
 
 #### Real-Capture BIOS Evaluation
 
@@ -248,15 +257,22 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 
 기존 synthetic/Wikimedia 데이터는 알고리즘 점검용으로 유지하고, 실촬영 BIOS 세트는 카메라 입력 조건에서의 동작을 확인하는 용도로 사용했습니다.
 
-#### CLAHE 파라미터 그리드 서치
+#### CLAHE 파라미터 그리드 서치 (실촬영 22장 proxy)
 
-| clipLimit | tileGrid | 특징 |
-|---|---|---|
-| 1.0 | 4 | 과소 보정 — 저대비 유지 |
-| **2.0** | **8** | **균형 — 표준 권장값 (Pizer et al. 1987)** |
-| 4.0 | 16 | 과대 보정 — 노이즈 증폭 |
+`clipLimit` × `tileGridSize` × `adaptiveBlock` × `C` 144조합을 실제 22장 BIOS 촬영본에 모두 적용하고, OCR 직전 단계에서 분리된 평균 텍스트 ROI 개수를 측정했습니다(아래 히트맵은 각 `(clipLimit, tileGridSize)` 쌍이 만든 최대값입니다).
 
-CLAHE grid search 이미지는 로컬 OCR 측정 환경이 준비된 뒤 다시 생성하는 것이 맞습니다. 현재 README에서는 빈 heatmap을 정량 근거처럼 사용하지 않고, 실제 촬영 세트에서 생성된 품질/ROI/전처리 결과를 근거로 제시했습니다.
+![CLAHE Grid Search (real capture)](docs/ablation-results/bios-clahe-gridsearch.png)
+
+| clipLimit | tileGrid | 평균 텍스트 ROI (실측) | 해석 |
+|---|---|---:|---|
+| 1.0 | 4 / 8 | 204 / 202 | 과소 보정이라도 본래 대비가 있어 후보 다수 |
+| 2.0 | 4 / 8 / 16 | 173 / 178 / 188 | 표준 권장값 (Pizer et al. 1987) — 노이즈와 신호 균형 |
+| **4.0** | **8** | **207** | **실측 최고치 — 어두운 실촬영 환경에서 텍스트 추출 극대화** |
+| 8.0 | 16 | 93 | 과대 보정으로 텍스트가 한 덩어리로 뭉침 |
+
+> **결정**: 본 프로젝트는 `clipLimit=2.0, tileGrid=8`을 채택합니다. 실측 최고치(`clipLimit=4.0`)는 텍스트 ROI 후보를 가장 많이 만들지만 그 안에는 노이즈도 함께 늘어납니다. `clipLimit=2.0`은 학술적으로 검증된 기본값이며 적당한 후보 수를 유지하면서 false positive를 줄이는 절충점입니다.
+
+상세 데이터: [`bios-clahe-gridsearch.csv`](docs/ablation-results/bios-clahe-gridsearch.csv) · 재실행: `python notebooks/regenerate_clahe_gridsearch.py`
 
 #### 알고리즘 선택 근거 — Threshold 방법
 
@@ -307,11 +323,9 @@ CLAHE grid search 이미지는 로컬 OCR 측정 환경이 준비된 뒤 다시 
 
 ![Histogram ROC per Scenario](docs/ablation-results/histogram-roc-per-scenario.png)
 
-#### False Positive 사례 갤러리
+#### False Positive 처리 — 윈도우 5 연속 안정화
 
-![False Positives](docs/cv-pipeline/histogram-false-positives.png)
-
-> 윈도우 1프레임에서 손 떨림/Rolling Shutter로 발생한 false positive. 5프레임 연속 확인으로 억제됨.
+5개 시나리오(hand-shake / lighting / rolling-shutter / ios-autofocus / normal-change)의 실측 결과는 [`histogram-ablation.csv`](docs/ablation-results/histogram-ablation.csv) 의 `window` 컬럼별 행에서 확인할 수 있습니다. 각 시나리오의 best-config는 `window=5` 일 때 결정되며, 특히 Rolling Shutter는 CHISQR+GRAY+w=5에서 Precision **1.000**(FP 0건), 정상 화면 전환은 CORREL+GRAY+w=5에서 F1 **0.917**을 달성합니다(위 "시나리오별 베스트 결과" 표 참조). False positive 프레임 시각 갤러리는 원본 영상 파일을 함께 보존하지 못해 별도 PNG로 임베드하지 않았습니다 — 위 CSV의 `tp/fp/fn/tn` 컬럼이 정량 근거입니다.
 
 ---
 

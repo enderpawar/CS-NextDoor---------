@@ -2010,10 +2010,53 @@
   letter-spacing: -0.02em;
 }
 
+.nd-action-bar-capture {
+  flex: 0 0 74px;
+  min-width: 74px;
+  min-height: 58px;
+  padding: 0;
+  border-radius: 999px;
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.nd-action-bar-camera-icon {
+  width: 30px;
+  height: 30px;
+  color: #fff;
+}
+
 .nd-action-bar-analyzing {
   font-size: 0.8rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.85);
+  position: relative;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+.nd-capture-progress-ring {
+  position: absolute;
+  inset: 4px;
+  border-radius: 999px;
+  border: 3px solid rgba(255, 255, 255, 0.32);
+  border-top-color: #ffffff;
+  animation: nd-capture-ring-spin 800ms linear infinite;
+}
+
+.nd-capture-hint {
+  margin-top: -0.65rem;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-text-secondary, #5d6274);
+}
+
+@keyframes nd-capture-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 비프음 시트 — 약간 더 큰 패딩 */
