@@ -567,6 +567,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const cameraStartingRef     = useRef(false);
   const smoothedCornersRef    = useRef<number[][] | null>(null);
   const overlaySizeRef        = useRef<{ w: number; h: number } | null>(null);
+  const lastQualityFeedbackRef = useRef('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const capturedHistRef = useRef<any>(null);
   const initialQuestionRef = useRef(initialQuestion.trim());
@@ -1173,13 +1174,28 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     await handleManualCapture(question);
   }, [questionDraft, handleManualCapture]);
 
+  const handleQualityFeedback = useCallback((message: string) => {
+    if (guide.captureState !== 'idle' || clipCaptureState !== 'idle' || galleryProcessingRef.current) return;
+
+    if (message) {
+      lastQualityFeedbackRef.current = message;
+      setQualityText(message);
+      return;
+    }
+
+    const lastFeedback = lastQualityFeedbackRef.current;
+    if (!lastFeedback) return;
+    lastQualityFeedbackRef.current = '';
+    setQualityText(current => (current === lastFeedback ? '' : current));
+  }, [clipCaptureState, guide.captureState]);
+
   const { currentHistRef } = useLiveFrameCapture({
     canvasRef,
     videoRef,
     cvReady,
     isSendingRef:     guide.isSendingRef,
     onFrameChange:    handleFrameChange,
-    onQualityFeedback: setQualityText,
+    onQualityFeedback: handleQualityFeedback,
     onMetricsUpdate:  handleMetricsUpdate,
     onBiosOverlay:    handleBiosOverlay,
     onBiosVendorDetected: applyDetectedVendor,
@@ -1267,15 +1283,30 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     existingStream?.getTracks().forEach(t => t.stop());
     cameraStartingRef.current = true;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
+      // 카메라 + 마이크 권한을 한 번에 요청 — 이후 비프음/클립 캡처 시 추가 프롬프트 없이 사용 가능.
+      // 마이크 거부 시 비디오만으로 진행 (graceful fallback).
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      }
+
+      // 마이크 트랙은 즉시 정리 — 권한 grant는 origin에 유지되어 이후 getUserMedia({audio})가 재프롬프트 없이 통과.
+      stream.getAudioTracks().forEach(t => t.stop());
+      const videoOnly = new MediaStream(stream.getVideoTracks());
+
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        videoRef.current.srcObject = videoOnly;
         await videoRef.current.play();
       } else {
-        stream.getTracks().forEach(t => t.stop());
+        videoOnly.getTracks().forEach(t => t.stop());
       }
     } catch {
       setStreamError('카메라 권한이 필요해요. 브라우저 설정에서 허용해주세요.');
@@ -1646,14 +1677,14 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           {cvReady ? '🔬' : '⌛'}
         </button>
       </div>
-      {guide.llmMode !== 'unknown' && (
+      {guide.llmMode === 'mock' && (
         <div
           className={`nd-llm-status-strip ${guide.llmMode}`}
-          role={guide.llmMode === 'mock' ? 'alert' : 'status'}
-          title={guide.llmError || (guide.llmMode === 'live' ? 'Gemini 백엔드 연결됨' : 'Mock 안내 사용 중')}
+          role="alert"
+          title={guide.llmError || 'Mock 안내 사용 중'}
         >
           <span className="nd-llm-status-dot" aria-hidden="true" />
-          <span>{guide.llmMode === 'live' ? 'Gemini 연결됨' : 'Mock 안내 중'}</span>
+          <span>Mock 안내 중</span>
         </div>
       )}
 

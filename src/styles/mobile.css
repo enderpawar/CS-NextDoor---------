@@ -161,6 +161,35 @@
   font-weight: 900;
 }
 
+.nd-guide-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+}
+
+.nd-guide-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-height: 28px;
+  padding: 0 0.55rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(53, 99, 201, 0.10);
+  color: #2c3d8f;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.nd-guide-toggle-btn:hover,
+.nd-guide-toggle-btn:focus-visible {
+  background: rgba(53, 99, 201, 0.18);
+  outline: none;
+}
+
 .nd-guide-sections {
   display: flex;
   flex-direction: column;

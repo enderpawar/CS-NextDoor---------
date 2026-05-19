@@ -72,6 +72,16 @@ describe('CV frame metrics harness', () => {
     expect(metrics.coverageRatio).toBeLessThan(0.04);
   });
 
+  it('accepts overfilled frames (too_close 판정 비활성화됨)', () => {
+    const metrics = analyzeFrame(makeFrame('overfilled', 640, 480, (x, y) => {
+      const value = (Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0 ? 32 : 224;
+      return [value, value, value];
+    }));
+
+    expect(metrics.guidance).not.toBe('too_close');
+    expect(metrics.coverageRatio).toBeGreaterThan(0.985);
+  });
+
   it('compares grayscale histograms for duplicate-frame filtering', () => {
     const first = analyzeFrame(checkerFrame('a'));
     const duplicate = analyzeFrame(checkerFrame('b'));

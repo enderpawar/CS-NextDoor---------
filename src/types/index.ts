@@ -172,6 +172,7 @@ export type FrameGuidance =
   | 'too_dark'
   | 'too_bright'
   | 'no_target'
+  | 'too_close'
   | 'too_far';
 
 export interface CvFrameInput {
@@ -205,6 +206,7 @@ export interface CvAnalysisOptions {
   edgeThreshold?: number;
   minSharpness?: number;
   minCoverageRatio?: number;
+  maxCoverageRatio?: number;
   minBrightness?: number;
   maxBrightness?: number;
   histogramBins?: number;

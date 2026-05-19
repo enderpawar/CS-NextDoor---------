@@ -5,6 +5,7 @@ const DEFAULT_OPTIONS: Required<CvAnalysisOptions> = {
   // notebooks/03-frame-quality.ipynb Commons web-image ablation: Laplacian/1600 threshold.
   minSharpness: 0.05,
   minCoverageRatio: 0.04,
+  maxCoverageRatio: 0.985,
   minBrightness: 0.15,
   maxBrightness: 0.85,
   histogramBins: 16,

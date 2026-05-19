@@ -89,6 +89,7 @@ export function useLiveFrameCapture({
   const changeCountRef     = useRef<number>(0);
   const lastHistScoreRef   = useRef<number>(1);        // 마지막 비교 유사도 (1=동일)
   const lastMetricsRef     = useRef<number>(0);        // 메트릭 업데이트 스로틀 타임스탬프
+  const lastFeedbackRef    = useRef<string | null>(null);
   const vendorOcrRunningRef = useRef(false);
   const vendorOcrAttemptsRef = useRef(0);              // 누적 OCR 시도 횟수 (성공 시 리셋)
   const vendorOcrLastTryRef = useRef(0);               // 마지막 OCR 시도 타임스탬프
@@ -134,11 +135,20 @@ export function useLiveFrameCapture({
     };
     const metrics = analyzeFrame(frameInput);
 
+    const emitQualityFeedback = (message: string) => {
+      if (!onQualityFeedback || lastFeedbackRef.current === message) return;
+      lastFeedbackRef.current = message;
+      onQualityFeedback(message);
+    };
+
     if (!metrics.isUsable || metrics.qualityScore < minQualityScore) {
-      onQualityFeedback?.(metrics.guidanceText);
+      // 사용자 요청: 흔들림(stabilize) 같은 경우에만 메시지 노출. 나머지는 조용히 프레임만 거부.
+      emitQualityFeedback(metrics.guidance === 'stabilize' ? metrics.guidanceText : '');
       rafRef.current = requestAnimationFrame(processFrame);
       return;
     }
+
+    emitQualityFeedback('');
 
     // ── [모듈 2] 히스토그램 변화 감지 ────────────────────────────────────────
     let hist: any;

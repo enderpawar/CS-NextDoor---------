@@ -1,6 +1,6 @@
 import '../../styles/mobile.css';
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Eye, Loader2, ListChecks, MessageCircleQuestion } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Eye, Loader2, ListChecks, MessageCircleQuestion } from 'lucide-react';
 import type { CaptureState } from '../../hooks/useGeminiLiveGuide';
 
 interface Props {
@@ -24,8 +24,10 @@ export default function GuideBubble({
   const sections = splitGuideText(text);
   const animationKey = isStreaming ? 'streaming' : text;
   const primaryLine = sections.actions[0] ?? sections.observation ?? '현재 화면을 분석해 다음 단계를 안내할게요.';
-  const shouldCollapse = compact && !isStreaming && !expanded;
+  // 사용자가 수동으로 접거나, compact 모드에서 펼치지 않은 경우 모두 collapse. 스트리밍 중에는 항상 펼침.
+  const shouldCollapse = !isStreaming && !expanded;
 
+  // 새 응답 도착 또는 compact 모드 변경 시 기본 상태로 복원.
   useEffect(() => {
     setExpanded(!compact);
   }, [compact, text]);
@@ -65,15 +67,23 @@ export default function GuideBubble({
               {isStreaming ? '화면을 분석하고 있어요' : primaryLine}
             </div>
           </div>
-          {shouldCollapse ? (
-            <button type="button" className="nd-guide-expand-btn" onClick={() => setExpanded(true)}>
-              자세히
-            </button>
-          ) : (
+          <div className="nd-guide-head-actions">
             <span className={`nd-guide-status-pill${isStreaming ? ' active' : ''}`}>
               {isStreaming ? '분석 중' : '대기 중'}
             </span>
-          )}
+            {!isStreaming && (
+              <button
+                type="button"
+                className="nd-guide-toggle-btn"
+                onClick={() => setExpanded(prev => !prev)}
+                aria-label={expanded ? 'AI 안내 접기' : 'AI 안내 펼치기'}
+                aria-expanded={expanded}
+              >
+                {expanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronUp size={16} aria-hidden="true" />}
+                <span>{expanded ? '접기' : '펼치기'}</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {!shouldCollapse && (
