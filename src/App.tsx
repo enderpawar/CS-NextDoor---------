@@ -47,7 +47,13 @@ function IntroLogo() {
 export default function App() {
   const mode = useRuntimeMode();
   const sysInfo = useSystemInfo();
-  const [introVisible, setIntroVisible] = useState(true);
+  const [introVisible, setIntroVisible] = useState(() => {
+    try {
+      return !localStorage.getItem('nd-intro-seen');
+    } catch {
+      return true;
+    }
+  });
   const [introLeaving, setIntroLeaving] = useState(false);
   const [symptom, setSymptom] = useState('');
   const [clipboardImage, setClipboardImage] = useState<ClipboardImage | null>(null);
@@ -101,6 +107,9 @@ export default function App() {
   const enterApp = () => {
     if (introLeaving) return;
     setIntroLeaving(true);
+    try {
+      localStorage.setItem('nd-intro-seen', '1');
+    } catch {}
     window.setTimeout(() => setIntroVisible(false), INTRO_TRANSITION_MS);
   };
 

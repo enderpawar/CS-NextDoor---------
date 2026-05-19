@@ -533,7 +533,13 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const [hwSafetyModalOpen, setHwSafetyModalOpen] = useState(false);
 
   // CV Insight 패널 상태 (Task 3)
-  const [cvPanelOpen,   setCvPanelOpen]   = useState(false);
+  const [cvPanelOpen,   setCvPanelOpen]   = useState(() => {
+    try {
+      return localStorage.getItem('nd-cv-panel-open') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [cvMetrics,     setCvMetrics]     = useState<CvFrameInsightMetrics | null>(null);
   const [biosInsight,   setBiosInsight]   = useState<{ rectified: boolean; textRegions: number; processMs: number } | null>(null);
 
@@ -692,6 +698,12 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     || clipCaptureState !== 'idle'
     || guide.session?.status !== 'ACTIVE'
     || !questionDraft.trim();
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('nd-cv-panel-open', cvPanelOpen ? '1' : '0');
+    } catch {}
+  }, [cvPanelOpen]);
 
   // ── 갤러리 이미지/짧은 동영상 업로드 → CV 전처리 → Gemini 전송 ───────────
   const handleGallerySelect = useCallback(
@@ -1747,6 +1759,22 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         )}
 
         {/* CV Insight 패널 — 카메라 우상단 오버레이 */}
+        <button
+          type="button"
+          className={`nd-cv-panel-toggle${cvPanelOpen ? ' is-open' : ' is-collapsed'}${cvReady ? ' ready' : ''}`}
+          onClick={() => setCvPanelOpen(v => !v)}
+          aria-label={cvPanelOpen ? 'CV 패널 접기' : 'CV 패널 펼치기'}
+          aria-pressed={cvPanelOpen}
+        >
+          {cvPanelOpen ? (
+            <span aria-hidden="true">▶</span>
+          ) : (
+            <>
+              <span className="nd-cv-panel-toggle-dot" aria-hidden="true" />
+              <span>CV</span>
+            </>
+          )}
+        </button>
         {cvPanelOpen && (
           <div className="nd-cv-panel-wrapper">
             <CvInsightPanel
@@ -1838,6 +1866,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
               type="button"
               className="nd-action-bar-btn"
               onClick={() => setAudioSheetOpen(true)}
+              disabled={guide.captureState !== 'idle' || clipCaptureState !== 'idle'}
               aria-label="비프음 진단 열기"
             >
               <span className="nd-action-bar-icon">🎙</span>

@@ -1786,10 +1786,59 @@
 .nd-cv-panel-wrapper {
   position: absolute;
   top: 0.6rem;
-  right: 0.6rem;
+  right: 3.8rem;
   z-index: 5;
   width: 148px;
   animation: nd-panel-in 0.18s ease;
+  transition: width 0.2s, opacity 0.2s;
+}
+
+.nd-cv-panel-toggle {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 6;
+  min-width: 48px;
+  height: 48px;
+  border: 1px solid rgba(90, 129, 250, 0.28);
+  border-radius: 999px;
+  background: rgba(10, 12, 24, 0.78);
+  color: #e2e8f0;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.2s, background 0.2s;
+}
+
+.nd-cv-panel-toggle:hover {
+  background: rgba(25, 35, 68, 0.84);
+}
+
+.nd-cv-panel-toggle.is-open {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+}
+
+.nd-cv-panel-toggle-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #64748b;
+}
+
+.nd-cv-panel-toggle.ready .nd-cv-panel-toggle-dot {
+  background: #22c55e;
+  box-shadow: 0 0 7px rgba(34, 197, 94, 0.75);
 }
 
 @keyframes nd-panel-in {

@@ -15,6 +15,36 @@ AI 기반 PC 하드웨어/소프트웨어 진단 서비스.
 [데모 영상/GIF — 제출 전 추가 예정]
 ```
 
+### 시나리오 1 — BIOS 부트 순서 변경 도움
+
+이 데모는 사용자가 USB 부팅이나 부팅 우선순위 변경이 필요할 때, PWA 카메라로 BIOS 화면을 비추면서 다음에 눌러야 할 메뉴를 안내받는 흐름을 보여줍니다. 앱은 카메라 프레임에서 BIOS 화면 품질과 변화 여부를 확인하고, OpenCV 전처리로 화면 영역과 텍스트 후보를 정리한 뒤 Gemini Vision에 전달합니다. 이후 Gemini가 `Boot Option #1`, `UEFI USB`, `Save & Exit` 같은 조작 대상을 선택하면, 앱은 해당 위치를 카메라 화면 위에 오버레이로 표시합니다.
+
+이 시나리오에서는 단순히 "Boot 메뉴를 누르세요"라고 설명하는 것이 아니라, 실제 촬영 화면 위에서 사용자가 어느 항목을 선택해야 하는지 바로 확인할 수 있는 점을 보여줍니다. 데모 영상에서는 CV Insight 패널의 품질 점수, 히스토그램 변화 감지, BIOS ROI/OCR 후보, AR 오버레이가 함께 동작하는 장면을 보여줄 예정입니다.
+
+```
+[데모 영상/GIF — BIOS 부트 순서 변경 도움]
+```
+
+| BIOS Boot 화면 인식 | Boot Option 안내 | Save & Exit 안내 |
+|:---:|:---:|:---:|
+| ![BIOS demo step 1](docs/screenshots/demo-bios-boot-01.png) | ![BIOS demo step 2](docs/screenshots/demo-bios-boot-02.png) | ![BIOS demo step 3](docs/screenshots/demo-bios-boot-03.png) |
+
+### 시나리오 2 — RAM 장착 불량 진단 및 재장착 안내
+
+이 데모는 전원은 들어오지만 화면이 나오지 않는 상황에서, 사용자가 본체 내부를 촬영하며 RAM 장착 불량 가능성을 확인하고 조치 안내를 받는 흐름을 보여줍니다. 앱은 먼저 증상과 촬영 화면을 바탕으로 RAM 재장착이 필요한 상황인지 판단하고, 사용자가 본체를 열어 RAM 슬롯 주변을 비출 수 있도록 단계별로 안내합니다.
+
+하드웨어 조치가 포함되기 때문에 앱은 먼저 전원 코드 분리, 잔류 전류 제거, 정전기 방전 같은 안전 체크를 안내합니다. 이후 RAM 양쪽 클립을 열어 분리하고, 금색 접점 부위를 마른 천이나 접점 세정제로 조심스럽게 닦은 뒤, 슬롯에 다시 끝까지 밀어 넣어 장착하는 과정을 순서대로 보여줍니다. 현장 응급 조치로 지우개를 사용할 수 있는 경우에도, 가루가 남지 않도록 완전히 제거해야 한다는 점을 함께 안내합니다.
+
+이 시나리오에서는 OpenCV가 부품을 직접 분류하기보다는 촬영 품질과 화면 변화 여부를 관리하고, Gemini Vision이 사용자의 증상과 촬영 화면을 바탕으로 다음 행동을 안내하는 구조를 보여줍니다. 데모 영상에서는 안전 체크 모달, RAM 슬롯 촬영 안내, 접점 청소 및 재장착 안내, 해결 여부 확인 흐름을 보여줄 예정입니다.
+
+```
+[데모 영상/GIF — RAM 장착 불량 진단 및 재장착 안내]
+```
+
+| 증상 입력 및 촬영 | 안전 체크 | RAM 재장착 안내 |
+|:---:|:---:|:---:|
+| ![RAM demo step 1](docs/screenshots/demo-ram-reseat-01.png) | ![RAM demo step 2](docs/screenshots/demo-ram-reseat-02.png) | ![RAM demo step 3](docs/screenshots/demo-ram-reseat-03.png) |
+
 ### PWA 화면 스크린샷
 
 | PWA 홈 (독립 모드) | GuideContextSelector | ShootingGuide |
@@ -206,6 +236,10 @@ MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄
 ![Real BIOS Preprocess Comparison](docs/cv-pipeline/real-bios-preprocess-comparison.png)
 
 이 오버레이는 평가용 시각화이면서 실제 앱의 AR 안내 구조와도 연결됩니다. 앱에서는 OpenCV 전처리 결과를 `cvSummary`와 OCR/ROI 후보로 정리해 Gemini에 전달하고, Gemini가 선택한 대상은 `targetId` 또는 `bbox` 형태로 돌아옵니다. 프론트엔드는 이 좌표를 카메라 화면 좌표계에 맞춰 변환한 뒤 사용자가 클릭하거나 조치해야 할 위치를 박스로 표시합니다.
+
+이 오버레이는 단순히 화면 위에 고정된 박스를 띄우는 방식이 아닙니다. 카메라로 촬영한 원본 프레임에서 OpenCV가 BIOS 화면 영역과 텍스트 후보 좌표를 먼저 추출하고, Gemini가 그중 다음에 조작해야 할 대상을 선택하면, 앱이 해당 좌표를 다시 카메라 화면 위에 맞춰 표시합니다.
+
+특히 모바일 카메라 화면은 기기 비율과 CSS 표시 방식 때문에 원본 영상 좌표와 실제 화면에 보이는 좌표가 그대로 일치하지 않습니다. 그래서 원본 비디오 크기를 기준으로 SVG `viewBox`를 유지하고, 카메라 영상과 같은 비율로 오버레이가 겹치도록 처리했습니다. 덕분에 사용자는 단순한 설명만 받는 것이 아니라, 실제로 어느 메뉴나 버튼을 눌러야 하는지 화면 위에서 바로 확인할 수 있습니다.
 <img width="1179" height="2556" alt="image" src="https://github.com/user-attachments/assets/30404512-2535-4e12-95e7-b1fb53069e0e" />
 
 

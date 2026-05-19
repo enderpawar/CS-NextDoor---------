@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Camera, CheckCircle2, History, Mic, ScanLine, Sparkles, User, Home as HomeIcon,
+  Camera, CheckCircle2, History, Mic, ScanLine, Sparkles,
   ArrowRight,
 } from 'lucide-react';
 import type { BiosType, GuideContext } from '../../types';
@@ -159,19 +159,16 @@ function ReadinessItem({ icon, label, status }: { icon: React.ReactNode; label: 
   );
 }
 
-function TabItem({ icon, label, active = false }: { icon: React.ReactNode; label: string; active?: boolean }) {
-  return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 0', color: active ? C.brand : C.inkFaint }}>
-      {icon}
-      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: -0.1 }}>{label}</div>
-    </div>
-  );
-}
-
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export default function PwaPage({ isStandalone }: Props) {
-  const [view,        setView]       = useState<PwaView>('onboarding');
+  const [view,        setView]       = useState<PwaView>(() => {
+    try {
+      return localStorage.getItem('nd-onboarded') ? 'home' : 'onboarding';
+    } catch {
+      return 'onboarding';
+    }
+  });
   const [selectedCtx, setSelectedCtx] = useState<GuideContext | 'beep'>('GENERAL');
   const [symptomText, setSymptomText] = useState('');
   const [initialGuideQuestion, setInitialGuideQuestion] = useState('');
@@ -278,6 +275,21 @@ export default function PwaPage({ isStandalone }: Props) {
     navigateTo('home', { replace: true });
   }, [navigateTo]);
 
+  const markOnboarded = useCallback(() => {
+    try {
+      localStorage.setItem('nd-onboarded', '1');
+    } catch {}
+  }, []);
+
+  const enterHome = useCallback(() => {
+    markOnboarded();
+    navigateTo('home');
+  }, [markOnboarded, navigateTo]);
+
+  const showComingSoon = useCallback(() => {
+    window.alert('Phase 10에서 제공될 예정이에요.');
+  }, []);
+
   // ── 진단 모드 뷰 ──────────────────────────────────────────────────────────
   if (view === 'live-guide') {
     return (
@@ -321,7 +333,7 @@ export default function PwaPage({ isStandalone }: Props) {
 
         {/* 건너뛰기 */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 22px' }}>
-          <button type="button" onClick={() => navigateTo('home')} style={{ background: 'none', border: 'none', fontSize: 14, color: C.inkSoft, fontWeight: 500, cursor: 'pointer', fontFamily: 'Pretendard, system-ui' }}>건너뛰기</button>
+          <button type="button" onClick={enterHome} style={{ background: 'none', border: 'none', fontSize: 14, color: C.inkSoft, fontWeight: 500, cursor: 'pointer', fontFamily: 'Pretendard, system-ui' }}>건너뛰기</button>
         </div>
 
         {/* 히어로 */}
@@ -354,9 +366,9 @@ export default function PwaPage({ isStandalone }: Props) {
         {/* 하단 CTA */}
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: `0 22px max(env(safe-area-inset-bottom,0px),24px)`, display: 'flex', flexDirection: 'column', gap: 14, background: `linear-gradient(to top, ${C.surface} 70%, transparent)` }}>
           <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
-            <ProgressDot active/><ProgressDot/><ProgressDot/>
+            <ProgressDot active/>
           </div>
-          <PillBtn full onClick={() => navigateTo('home')}>시작하기 <ArrowRight size={18}/></PillBtn>
+          <PillBtn full onClick={enterHome}>시작하기 <ArrowRight size={18}/></PillBtn>
           <div style={{ textAlign: 'center', fontSize: 13.5, color: C.inkSoft, paddingBottom: 8 }}>
             이미 사용 중이신가요?{' '}
             <span style={{ color: C.brand, fontWeight: 700 }}>로그인</span>
@@ -406,35 +418,35 @@ export default function PwaPage({ isStandalone }: Props) {
 
         {/* 자유 입력 */}
         <div style={{ padding: '18px 22px 0', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
-          <textarea
-            value={symptomText}
-            onChange={e => setSymptomText(e.target.value)}
-            placeholder={'예: 전원은 들어오는데 모니터에 아무것도 안 떠요\n예: BIOS 화면에서 USB 부팅을 어디서 고르는지 모르겠어요'}
-            maxLength={220}
-            rows={6}
-            style={{
-              width: '100%',
-              minHeight: 150,
-              resize: 'vertical',
-              border: 'none',
-              borderRadius: 20,
-              padding: 16,
-              background: C.surface,
-              boxShadow: `inset 0 0 0 1.5px ${C.line}`,
-              color: C.ink,
-              fontFamily: 'Pretendard, system-ui',
-              fontSize: 15.5,
-              fontWeight: 600,
-              lineHeight: 1.55,
-              letterSpacing: -0.3,
-              outline: 'none',
-            }}
-          />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-            <span style={{ color: C.inkSoft, fontSize: 12.5, fontWeight: 600 }}>
-              사진처럼 화면을 비추면 입력한 내용과 같이 분석해요.
-            </span>
-            <span style={{ color: C.inkFaint, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+          <span style={{ color: C.inkSoft, fontSize: 12.5, fontWeight: 600, lineHeight: 1.45 }}>
+            사진처럼 화면을 비추면 입력한 내용과 같이 분석해요.
+          </span>
+          <div style={{ position: 'relative' }}>
+            <textarea
+              value={symptomText}
+              onChange={e => setSymptomText(e.target.value)}
+              placeholder={'예: 전원은 들어오는데 모니터에 아무것도 안 떠요\n예: BIOS 화면에서 USB 부팅을 어디서 고르는지 모르겠어요'}
+              maxLength={220}
+              rows={6}
+              style={{
+                width: '100%',
+                minHeight: 150,
+                resize: 'vertical',
+                border: 'none',
+                borderRadius: 20,
+                padding: '16px 16px 34px',
+                background: C.surface,
+                boxShadow: `inset 0 0 0 1.5px ${C.line}`,
+                color: C.ink,
+                fontFamily: 'Pretendard, system-ui',
+                fontSize: 15.5,
+                fontWeight: 600,
+                lineHeight: 1.55,
+                letterSpacing: -0.3,
+                outline: 'none',
+              }}
+            />
+            <span style={{ position: 'absolute', right: 14, bottom: 13, color: C.inkFaint, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', padding: '2px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.86)' }}>
               {symptomText.length}/220
             </span>
           </div>
@@ -451,7 +463,7 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
 
         {/* 하단 CTA */}
-        <div style={{ padding: `12px 22px max(env(safe-area-inset-bottom,0px),30px)`, background: C.bg, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ padding: `calc(12px + ${bottomDockOffset}px) 22px max(env(safe-area-inset-bottom,0px), calc(30px + ${bottomDockOffset}px))`, background: C.bg, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('live-guide', { replace: true }); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
               ✨ 입력 없이 화면부터 보기
@@ -467,7 +479,7 @@ export default function PwaPage({ isStandalone }: Props) {
 
   // ── Screen 02: 홈 ────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column', paddingBottom: `calc(82px + env(safe-area-inset-bottom, 0px) + ${bottomDockOffset}px)` }}>
+    <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column', paddingBottom: `calc(env(safe-area-inset-bottom,0px) + 24px + ${bottomDockOffset}px)` }}>
       <div style={{ height: 54 }}/>
 
       {/* 탑바 */}
@@ -476,9 +488,9 @@ export default function PwaPage({ isStandalone }: Props) {
           <AppLogo size={32}/>
           <AppWordmark size={18} compact/>
         </div>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', position: 'relative', color: C.inkSoft }}>
+        <button type="button" onClick={showComingSoon} title="Phase 10 예정" aria-label="히스토리 보기 예정" style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', position: 'relative', color: C.inkSoft, cursor: 'pointer' }}>
           <History size={20}/>
-        </div>
+        </button>
       </div>
 
       {/* 인사 */}
@@ -510,8 +522,8 @@ export default function PwaPage({ isStandalone }: Props) {
             진단 시작하기
           </div>
         </button>
-        <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('context'); }} style={{ width: '100%', height: 48, marginTop: 10, borderRadius: 24, border: 'none', background: C.surface, color: C.brand, boxShadow: `inset 0 0 0 1.5px ${C.line}`, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>
-          증상부터 입력하기
+        <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('context'); }} style={{ width: '100%', marginTop: 12, border: 'none', background: 'transparent', color: C.brand, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 13.5, fontWeight: 800, letterSpacing: -0.2 }}>
+          증상을 먼저 적고 시작할게요
           <ArrowRight size={17}/>
         </button>
       </div>
@@ -540,24 +552,7 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
       </div>
 
-      {/* 최근 진단 */}
-      <div style={{ padding: '18px 22px 0' }}>
-        <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.4, marginBottom: 10 }}>최근 진단</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, borderRadius: 18, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: C.brandSoft, color: C.brand, display: 'grid', placeItems: 'center', flexShrink: 0 }}><History size={20}/></div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: -0.3 }}>최근 진단 없음</div>
-            <div style={{ fontSize: 12, color: C.inkSoft, marginTop: 2 }}>진단을 시작하면 여기에서 다시 확인할 수 있어요.</div>
-          </div>
-        </div>
-      </div>
-
-      {/* 탭 바 */}
-      <div style={{ position: 'fixed', left: 0, right: 0, bottom: bottomDockOffset, zIndex: 50, padding: `8px 16px max(env(safe-area-inset-bottom,0px),16px)`, background: 'rgba(255,255,255,0.96)', borderTop: `1px solid ${C.line}`, boxShadow: '0 -12px 28px -24px rgba(15, 23, 42, 0.55)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
-        <TabItem icon={<HomeIcon size={22}/>} label="홈"       active/>
-        <TabItem icon={<History size={22}/>}  label="히스토리"/>
-        <TabItem icon={<User size={22}/>}     label="내 기기"/>
-      </div>
+      {/* TODO: Phase 10에서 실제 이력 연결 */}
     </div>
   );
 }
