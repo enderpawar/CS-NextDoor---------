@@ -39,7 +39,7 @@ import AudioCapture                          from './AudioCapture';
 import type { GuideArTarget, GuideContext, BiosType, GuideOcrRegion, CvFrameInput } from '../../types';
 import { isHwRepairContext } from '../../types';
 import { compareHist }                       from '../../lib/cv/changeDetection';
-import { analyzeFrame, compareHistograms }   from '../../lib/cv/frameMetrics';
+import { analyzeFrame }                      from '../../lib/cv/frameMetrics';
 import {
   detectBiosVendor,
   preprocessBiosFrameForGuide,
@@ -65,6 +65,10 @@ const GALLERY_VIDEO_MAX_DURATION_SEC = 15;
 const GALLERY_VIDEO_MAX_SIZE_BYTES = 50 * 1024 * 1024;
 const GALLERY_VIDEO_SAMPLE_FPS = 4;
 const GALLERY_VIDEO_MAX_ANALYSIS_SIDE = 640;
+const GALLERY_VIDEO_REPRESENTATIVE_MAX_SIDE = 1280;   // 대표 프레임 재캡처 해상도 (Gemini OCR 품질 보존)
+const GALLERY_VIDEO_SEEK_TIMEOUT_MS = 2500;            // seek 무한 대기 방지
+const GALLERY_VIDEO_LOAD_TIMEOUT_MS = 8000;            // loadedmetadata 무한 대기 방지
+const GALLERY_REPRESENTATIVE_JPEG_QUALITY = 0.85;      // 이미지 업로드 경로와 통일
 
 type PageState = 'camera' | 'done';
 type ActionResult = 'none' | 'tried' | 'unresolved';
@@ -75,18 +79,25 @@ interface FrozenFrame {
   height: number;
 }
 
-interface GalleryVideoFrame {
-  frame: CvFrameInput;
-  imageData: ImageData;
-  jpegBase64: string;
-}
-
 interface GalleryVideoAnalysis {
   base64: string;
   rgba: ImageData;
   width: number;
   height: number;
   cvSummary: string;
+}
+
+interface GalleryFrameAnalysis {
+  timestampMs: number;
+  brightnessMean: number;
+  qualityScore: number;
+  sceneChangeScore: number;
+}
+
+interface DrawnVideoFrame {
+  imageData: ImageData;
+  width: number;
+  height: number;
 }
 
 interface Props {
@@ -104,11 +115,21 @@ function parseBiosFromSummary(cvSummary: string) {
   };
 }
 
-function waitForMediaEvent(target: HTMLMediaElement, eventName: string) {
+function isLikelyImageFile(file: File) {
+  return file.type.startsWith('image/') || /\.(avif|gif|jpe?g|png|webp)$/i.test(file.name);
+}
+
+function isLikelyVideoFile(file: File) {
+  return file.type.startsWith('video/') || /\.(m4v|mov|mp4|webm)$/i.test(file.name);
+}
+
+function waitForMediaEvent(target: HTMLMediaElement, eventName: string, timeoutMs?: number) {
   return new Promise<void>((resolve, reject) => {
+    let timer: number | null = null;
     const cleanup = () => {
       target.removeEventListener(eventName, handleEvent);
       target.removeEventListener('error', handleError);
+      if (timer !== null) window.clearTimeout(timer);
     };
     const handleEvent = () => {
       cleanup();
@@ -120,44 +141,55 @@ function waitForMediaEvent(target: HTMLMediaElement, eventName: string) {
     };
     target.addEventListener(eventName, handleEvent, { once: true });
     target.addEventListener('error', handleError, { once: true });
+    if (timeoutMs !== undefined && timeoutMs > 0) {
+      timer = window.setTimeout(() => {
+        cleanup();
+        reject(new Error(`media ${eventName} timeout`));
+      }, timeoutMs);
+    }
   });
 }
 
-async function seekVideo(video: HTMLVideoElement, timeSec: number) {
+async function seekVideo(
+  video: HTMLVideoElement,
+  timeSec: number,
+  timeoutMs: number = GALLERY_VIDEO_SEEK_TIMEOUT_MS,
+) {
   const target = Math.min(Math.max(0, timeSec), Math.max(0, video.duration - 0.05));
   if (Math.abs(video.currentTime - target) < 0.01) return;
-  const wait = waitForMediaEvent(video, 'seeked');
+  const wait = waitForMediaEvent(video, 'seeked', timeoutMs);
   video.currentTime = target;
   await wait;
 }
 
-function captureGalleryVideoFrame(
+/** 비디오 현재 프레임을 캔버스에 그리고 ImageData를 반환. ImageData.data를 그대로 사용 (복사 없음). */
+function drawVideoToCanvas(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
-  timestampMs: number,
-): GalleryVideoFrame | null {
+  maxSide: number,
+): DrawnVideoFrame | null {
   if (video.videoWidth <= 0 || video.videoHeight <= 0) return null;
-  const scale = Math.min(1, GALLERY_VIDEO_MAX_ANALYSIS_SIDE / Math.max(video.videoWidth, video.videoHeight));
+  const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
   canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
   canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
-
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  return {
-    frame: {
-      id: `gallery-video-${Math.round(timestampMs)}`,
-      width: imageData.width,
-      height: imageData.height,
-      data: new Uint8ClampedArray(imageData.data),
-      timestampMs,
-    },
-    imageData,
-    jpegBase64: canvas.toDataURL('image/jpeg', 0.82).split(',')[1] ?? '',
-  };
+  return { imageData, width: canvas.width, height: canvas.height };
 }
 
+/**
+ * 갤러리 동영상 분석.
+ *
+ * 메모리·연산 효율을 위해 두 패스로 동작:
+ *  - 1차: 저해상도(640px)로 모든 샘플을 순회하며 메트릭만 누적 (이전 히스토그램을 캐시해 analyzeFrame 1회 호출).
+ *         ImageData는 매 반복마다 폐기 — 60프레임 동시 보관으로 인한 100MB+ 메모리 폭증 방지.
+ *  - 2차: 품질×0.6 + 장면변화×0.4 가중합으로 선정한 대표 시점을 재seek해 고해상도(1280px)로 단 1장 캡처.
+ *         Gemini Vision에 전달되는 해상도가 이미지 업로드 경로와 동일해짐.
+ *
+ * 모든 seek/load는 타임아웃이 걸려 있어 코덱 이슈로 영원히 멈추지 않음.
+ */
 async function analyzeGalleryVideo(file: File): Promise<GalleryVideoAnalysis> {
   if (file.size > GALLERY_VIDEO_MAX_SIZE_BYTES) {
     throw new Error('video-file-too-large');
@@ -171,54 +203,100 @@ async function analyzeGalleryVideo(file: File): Promise<GalleryVideoAnalysis> {
 
   try {
     video.src = url;
-    await waitForMediaEvent(video, 'loadedmetadata');
+    try {
+      await waitForMediaEvent(video, 'loadedmetadata', GALLERY_VIDEO_LOAD_TIMEOUT_MS);
+    } catch {
+      throw new Error('video-codec-unsupported');
+    }
     if (!Number.isFinite(video.duration) || video.duration <= 0) {
       throw new Error('video-duration-unavailable');
     }
     if (video.duration > GALLERY_VIDEO_MAX_DURATION_SEC) {
       throw new Error('video-too-long');
     }
-
-    const canvas = document.createElement('canvas');
-    const sampleCount = Math.max(3, Math.floor(video.duration * GALLERY_VIDEO_SAMPLE_FPS));
-    const frames: GalleryVideoFrame[] = [];
-    for (let index = 0; index < sampleCount; index += 1) {
-      const timeSec = sampleCount === 1 ? 0 : (index / (sampleCount - 1)) * Math.max(0, video.duration - 0.05);
-      await seekVideo(video, timeSec);
-      const captured = captureGalleryVideoFrame(video, canvas, timeSec * 1000);
-      if (captured?.jpegBase64) frames.push(captured);
+    if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+      throw new Error('video-codec-unsupported');
     }
 
-    if (frames.length < 3) throw new Error('video-no-frames');
+    // ── Pass 1: 메트릭만 누적 (ImageData 비보관, 이전 히스토그램 캐시) ──
+    const analysisCanvas = document.createElement('canvas');
+    const sampleCount = Math.max(3, Math.floor(video.duration * GALLERY_VIDEO_SAMPLE_FPS));
+    const analyses: GalleryFrameAnalysis[] = [];
+    let prevHist: number[] | undefined;
 
-    const candidates = frames.map((frame, index) => {
-      const previous = index > 0 ? analyzeFrame(frames[index - 1]!.frame).histogram : undefined;
-      return { ...frame, metrics: analyzeFrame(frame.frame, previous) };
-    });
-    const brightnessValues = candidates.map(candidate => candidate.metrics.brightnessMean);
-    const sceneChangeScores = candidates.map((candidate, index) => {
-      if (candidate.metrics.sceneChangeScore !== undefined) return Math.max(0, Math.min(1, candidate.metrics.sceneChangeScore));
-      if (index === 0) return 0;
-      return Math.max(0, Math.min(1, 1 - compareHistograms(
-        candidates[index - 1]?.metrics.histogram ?? [],
-        candidate.metrics.histogram,
-      )));
-    });
+    for (let index = 0; index < sampleCount; index += 1) {
+      const timeSec = sampleCount === 1
+        ? 0
+        : (index / (sampleCount - 1)) * Math.max(0, video.duration - 0.05);
+      try {
+        await seekVideo(video, timeSec);
+      } catch {
+        continue;   // seek 타임아웃 → 해당 샘플 건너뜀
+      }
+      const drawn = drawVideoToCanvas(video, analysisCanvas, GALLERY_VIDEO_MAX_ANALYSIS_SIDE);
+      if (!drawn) continue;
+
+      const frame: CvFrameInput = {
+        id: `gallery-video-${Math.round(timeSec * 1000)}`,
+        width: drawn.width,
+        height: drawn.height,
+        data: drawn.imageData.data,   // 복사 없이 참조 — 이 반복 끝나면 GC
+        timestampMs: timeSec * 1000,
+      };
+      const metrics = analyzeFrame(frame, prevHist);
+      analyses.push({
+        timestampMs: timeSec * 1000,
+        brightnessMean: metrics.brightnessMean,
+        qualityScore: metrics.qualityScore,
+        sceneChangeScore: Math.max(0, Math.min(1, metrics.sceneChangeScore ?? 0)),
+      });
+      prevHist = metrics.histogram;
+    }
+
+    // 3장 미만이면 통계가 의미 없음 — 단 1장이라도 살아남았는데 sampleCount가 작았다면(<3) 그대로 진행하지 않음
+    if (analyses.length < 3) throw new Error('video-no-frames');
+
+    // ── 대표 프레임 선택: 품질 + 장면변화 가중합 (Codex 버전의 "최대 밝기 델타" 휴리스틱 교체) ──
+    // 첫 프레임은 sceneChangeScore=0이라 품질 점수만 반영됨.
+    let bestIndex = 0;
+    let bestScore = -Infinity;
+    for (let i = 0; i < analyses.length; i += 1) {
+      const a = analyses[i]!;
+      const score = a.qualityScore * 0.6 + a.sceneChangeScore * 0.4;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+    const repTimeSec = analyses[bestIndex]!.timestampMs / 1000;
+
+    // ── Pass 2: 대표 시점을 고해상도로 재캡처 ──
+    try {
+      await seekVideo(video, repTimeSec);
+    } catch {
+      throw new Error('video-no-representative');
+    }
+    const repCanvas = document.createElement('canvas');
+    const repDrawn = drawVideoToCanvas(video, repCanvas, GALLERY_VIDEO_REPRESENTATIVE_MAX_SIDE);
+    if (!repDrawn) throw new Error('video-no-representative');
+    const repBase64 = repCanvas.toDataURL('image/jpeg', GALLERY_REPRESENTATIVE_JPEG_QUALITY).split(',')[1] ?? '';
+    if (!repBase64) throw new Error('video-no-representative');
+
+    // ── 요약 통계 ──
+    const brightnessValues = analyses.map(a => a.brightnessMean);
+    const sceneChangeScores = analyses.map(a => a.sceneChangeScore);
     const brightnessDeltas = brightnessValues
       .slice(1)
-      .map((value, index) => Math.abs(value - (brightnessValues[index] ?? value)));
-    const selectedIndex = brightnessDeltas.length > 0
-      ? brightnessDeltas.indexOf(Math.max(...brightnessDeltas)) + 1
-      : 0;
-    const fallback = [...candidates].sort((a, b) => b.metrics.qualityScore - a.metrics.qualityScore)[0];
-    const representative = candidates[selectedIndex] ?? fallback ?? candidates[0];
-    if (!representative?.jpegBase64) throw new Error('video-no-representative');
+      .map((value, idx) => Math.abs(value - (brightnessValues[idx] ?? value)));
+    const brightnessDeltaMax = brightnessDeltas.length > 0 ? Math.max(...brightnessDeltas) : 0;
+    const changedFrames = brightnessDeltas.filter(
+      delta => delta >= Math.max(0.06, brightnessDeltaMax * 0.55),
+    ).length;
 
-    const changedFrames = brightnessDeltas.filter(delta => delta >= Math.max(0.06, Math.max(...brightnessDeltas) * 0.55)).length;
     const cvSummary = [
       buildDiagnosticClipSummary({
         durationMs: video.duration * 1000,
-        sampledFrames: frames.length,
+        sampledFrames: analyses.length,
         selectedFrames: Math.max(1, changedFrames),
         brightnessValues,
         sceneChangeScores,
@@ -227,19 +305,22 @@ async function analyzeGalleryVideo(file: File): Promise<GalleryVideoAnalysis> {
       }).replace('captureMode=clip', 'captureMode=galleryVideo'),
       `videoDurationMs=${Math.round(video.duration * 1000)}`,
       `videoSampleFps=${GALLERY_VIDEO_SAMPLE_FPS}`,
-      `selectedFrameAtMs=${Math.round(representative.frame.timestampMs)}`,
+      `selectedFrameAtMs=${Math.round(repTimeSec * 1000)}`,
       `sourceMimeType=${file.type || 'unknown'}`,
     ].join(', ');
 
     return {
-      base64: representative.jpegBase64,
-      rgba: representative.imageData,
-      width: representative.frame.width,
-      height: representative.frame.height,
+      base64: repBase64,
+      rgba: repDrawn.imageData,
+      width: repDrawn.width,
+      height: repDrawn.height,
       cvSummary,
     };
   } finally {
     URL.revokeObjectURL(url);
+    // 디코더/스트림 해제 — 안 풀어주면 메모리에 남아있을 수 있음
+    video.removeAttribute('src');
+    try { video.load(); } catch { /* noop */ }
   }
 }
 
@@ -507,6 +588,9 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     userQuestion?: string;
     taskGoal?: string;
   } | null>(null);
+  // 갤러리 업로드 중복 실행 가드 — 동영상 분석이 수초 걸리는 동안 두 번째 파일 선택 차단
+  const galleryProcessingRef = useRef(false);
+  const [galleryProcessing, setGalleryProcessing] = useState(false);
 
   const { cvReady } = useOpenCV();
   const guide = useGeminiLiveGuide();
@@ -609,131 +693,189 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     || guide.session?.status !== 'ACTIVE'
     || !questionDraft.trim();
 
-  // ── 갤러리 이미지 업로드 → CV 전처리 → Gemini 전송 ──────────────────────
+  // ── 갤러리 이미지/짧은 동영상 업로드 → CV 전처리 → Gemini 전송 ───────────
   const handleGallerySelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
       e.target.value = '';   // 동일 파일 재선택 허용
 
-      // 이미지 로드
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      try {
-        await new Promise<void>((resolve, reject) => {
-          img.onload  = () => resolve();
-          img.onerror = () => reject();
-          img.src = url;
-        });
-      } catch {
-        setStreamError('이미지를 불러올 수 없어요.');
+      // 동시 실행 가드 — 동영상 분석이 수초 걸리는 동안 두 번째 호출 차단
+      if (galleryProcessingRef.current) return;
+
+      const isVideo = isLikelyVideoFile(file);
+      const isImage = isLikelyImageFile(file);
+      if (!isImage && !isVideo) {
+        setStreamError('사진이나 15초 이하의 동영상만 선택할 수 있어요.');
         return;
-      } finally {
-        URL.revokeObjectURL(url);
       }
 
-      // off-screen canvas에 그리기 — 최대 1280px로 리사이즈 (rAF 루프와 canvasRef 충돌 방지)
-      const MAX_SIDE = 1280;
-      const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
-      const offCanvas = document.createElement('canvas');
-      offCanvas.width  = Math.round(img.naturalWidth  * scale);
-      offCanvas.height = Math.round(img.naturalHeight * scale);
-      const ctx = offCanvas.getContext('2d');
-      if (!ctx) return;
-      ctx.drawImage(img, 0, 0);
-      setFrozenFrame({
-        dataUrl: offCanvas.toDataURL('image/jpeg', 0.85),
-        width: offCanvas.width,
-        height: offCanvas.height,
-      });
+      galleryProcessingRef.current = true;
+      setGalleryProcessing(true);
+      setStreamError('');
+      setQualityText(isVideo ? '동영상에서 화면 변화가 큰 장면을 찾는 중...' : '');
 
-      const rgba = ctx.getImageData(0, 0, offCanvas.width, offCanvas.height);
-      let base64 = offCanvas.toDataURL('image/jpeg', 0.85).split(',')[1] ?? '';
-      const initialQuestionForFrame = !guide.streamText ? initialQuestionRef.current : '';
-      if (initialQuestionForFrame && !taskGoalRef.current) setTaskGoal(initialQuestionForFrame);
-      let cvSummary = [
-        'galleryUpload=true',
-        initialQuestionForFrame ? 'userQuestion=true' : 'userQuestion=false',
-        initialQuestionForFrame ? 'guidePhase=question-initial' : 'guidePhase=initial',
-        `previousActionResult=${lastActionResultRef.current}`,
-      ].join(', ');
+      try {
+        let base64 = '';
+        let rgba: ImageData;
+        let width = 0;
+        let height = 0;
+        let cvSummary = '';
 
-      // 모듈 1: BIOS 전처리 (CLAHE 강화 + Hough 모서리)
-      if (cvReady) {
-        try {
-          const preprocessed = preprocessBiosFrameForGuide(rgba);
-          cvSummary = [
-            cvSummary,
-            `biosRectified=${preprocessed.rectified}`,
-            `biosTextRegions=${preprocessed.textRegionCount}`,
-            `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
-          ].join(', ');
-          handleBiosOverlay({
-            corners: preprocessed.corners,
-            textRegions: preprocessed.textRegions,
-            videoW: offCanvas.width,
-            videoH: offCanvas.height,
-          });
-          setBiosInsight({
-            rectified:   preprocessed.rectified,
-            textRegions: preprocessed.textRegionCount,
-            processMs:   Math.round(preprocessed.processingMs),
-          });
-        } catch {
-          // 전처리 실패 → 원본 이미지로 계속
+        if (isVideo) {
+          try {
+            const result = await analyzeGalleryVideo(file);
+            base64 = result.base64;
+            rgba = result.rgba;
+            width = result.width;
+            height = result.height;
+            cvSummary = result.cvSummary;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : '';
+            if (message === 'video-too-long') {
+              setStreamError('동영상은 15초 이하만 분석할 수 있어요.');
+            } else if (message === 'video-file-too-large') {
+              setStreamError('동영상은 50MB 이하만 분석할 수 있어요.');
+            } else if (message === 'video-codec-unsupported' || message === 'video-duration-unavailable') {
+              setStreamError('이 동영상 코덱은 브라우저에서 열 수 없어요. mp4(h.264)로 다시 저장해주세요.');
+            } else {
+              setStreamError('동영상에서 분석할 화면 변화를 찾지 못했어요.');
+            }
+            return;
+          }
+        } else {
+          // 이미지 로드
+          const img = new Image();
+          const url = URL.createObjectURL(file);
+          try {
+            await new Promise<void>((resolve, reject) => {
+              img.onload  = () => resolve();
+              img.onerror = () => reject(new Error('image-load-failed'));
+              img.src = url;
+            });
+          } catch {
+            setStreamError('이미지를 불러올 수 없어요.');
+            return;
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+
+          // off-screen canvas에 그리기 — 최대 1280px로 리사이즈 (rAF 루프와 canvasRef 충돌 방지)
+          const MAX_SIDE = GALLERY_VIDEO_REPRESENTATIVE_MAX_SIDE;
+          const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+          const offCanvas = document.createElement('canvas');
+          offCanvas.width  = Math.round(img.naturalWidth  * scale);
+          offCanvas.height = Math.round(img.naturalHeight * scale);
+          const ctx = offCanvas.getContext('2d');
+          if (!ctx) {
+            setStreamError('이미지를 처리할 수 없어요.');
+            return;
+          }
+          ctx.drawImage(img, 0, 0, offCanvas.width, offCanvas.height);
+          rgba = ctx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+          base64 = offCanvas.toDataURL('image/jpeg', GALLERY_REPRESENTATIVE_JPEG_QUALITY).split(',')[1] ?? '';
+          width = offCanvas.width;
+          height = offCanvas.height;
+          cvSummary = '';
         }
-      }
 
-      let galleryOcrRegions: GuideOcrRegion[] = [];
-      if (cvReady) {
-        try {
-          const ocrResult = await runBiosPipeline(rgba);
-          galleryOcrRegions = ocrResult.ocrRegions;
-          setBiosOcrRegions(galleryOcrRegions);
-          if (ocrResult.detectedVendor) applyDetectedVendor(ocrResult.detectedVendor);
-          cvSummary = [
-            cvSummary,
-            `ocrRegions=${galleryOcrRegions.length}`,
-            `ocrConfidence=${ocrResult.confidence.toFixed(2)}`,
-          ].join(', ');
-        } catch {
-          setBiosOcrRegions([]);
+        setFrozenFrame({
+          dataUrl: `data:image/jpeg;base64,${base64}`,
+          width,
+          height,
+        });
+
+        const initialQuestionForFrame = !guide.streamText ? initialQuestionRef.current : '';
+        if (initialQuestionForFrame && !taskGoalRef.current) setTaskGoal(initialQuestionForFrame);
+        cvSummary = [
+          cvSummary,
+          'galleryUpload=true',
+          isVideo ? 'galleryUploadType=video' : 'galleryUploadType=image',
+          initialQuestionForFrame ? 'userQuestion=true' : 'userQuestion=false',
+          initialQuestionForFrame ? 'guidePhase=question-initial' : 'guidePhase=initial',
+          `previousActionResult=${lastActionResultRef.current}`,
+        ].filter(Boolean).join(', ');
+
+        // 모듈 1: BIOS 전처리 (CLAHE 강화 + Hough 모서리)
+        if (cvReady) {
+          try {
+            const preprocessed = preprocessBiosFrameForGuide(rgba);
+            cvSummary = [
+              cvSummary,
+              `biosRectified=${preprocessed.rectified}`,
+              `biosTextRegions=${preprocessed.textRegionCount}`,
+              `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
+            ].join(', ');
+            handleBiosOverlay({
+              corners: preprocessed.corners,
+              textRegions: preprocessed.textRegions,
+              videoW: width,
+              videoH: height,
+            });
+            setBiosInsight({
+              rectified:   preprocessed.rectified,
+              textRegions: preprocessed.textRegionCount,
+              processMs:   Math.round(preprocessed.processingMs),
+            });
+          } catch {
+            // 전처리 실패 → 원본 이미지로 계속
+          }
         }
-      }
 
-      pendingGalleryFrameRef.current = {
-        base64,
-        cvSummary,
-        ocrRegions: galleryOcrRegions,
-        userQuestion: initialQuestionForFrame || undefined,
-        taskGoal: taskGoalRef.current || initialQuestionForFrame || undefined,
-      };
+        let galleryOcrRegions: GuideOcrRegion[] = [];
+        if (cvReady) {
+          try {
+            const ocrResult = await runBiosPipeline(rgba);
+            galleryOcrRegions = ocrResult.ocrRegions;
+            setBiosOcrRegions(galleryOcrRegions);
+            if (ocrResult.detectedVendor) applyDetectedVendor(ocrResult.detectedVendor);
+            cvSummary = [
+              cvSummary,
+              `ocrRegions=${galleryOcrRegions.length}`,
+              `ocrConfidence=${ocrResult.confidence.toFixed(2)}`,
+            ].join(', ');
+          } catch {
+            setBiosOcrRegions([]);
+          }
+        }
 
-      if (guide.session?.status === 'ACTIVE') {
-        // 이미 세션 활성 → 즉시 전송
-        pendingGalleryFrameRef.current = null;
-        try {
-          await guide.sendFrame(
-            base64,
-            null,
-            cvSummary,
-            galleryOcrRegions,
-            initialQuestionForFrame || undefined,
-            taskGoalRef.current || initialQuestionForFrame || undefined,
-          );
-          if (initialQuestionForFrame) initialQuestionRef.current = '';
-          lastActionResultRef.current = 'none';
-        } catch { /* 내부 처리 */ }
-      } else {
-        // 세션 없음 → ShootingGuide 닫고 자동 시작 (완료 후 pendingGalleryFrameRef useEffect가 전송)
-        setShowShootingGuide(false);
-        setStreamError('');
-        try {
-          await guide.startSession(context);
-        } catch {
-          setStreamError('가이드 세션을 시작할 수 없어요.');
+        pendingGalleryFrameRef.current = {
+          base64,
+          cvSummary,
+          ocrRegions: galleryOcrRegions,
+          userQuestion: initialQuestionForFrame || undefined,
+          taskGoal: taskGoalRef.current || initialQuestionForFrame || undefined,
+        };
+
+        if (guide.session?.status === 'ACTIVE') {
+          // 이미 세션 활성 → 즉시 전송
           pendingGalleryFrameRef.current = null;
+          try {
+            await guide.sendFrame(
+              base64,
+              null,
+              cvSummary,
+              galleryOcrRegions,
+              initialQuestionForFrame || undefined,
+              taskGoalRef.current || initialQuestionForFrame || undefined,
+            );
+            if (initialQuestionForFrame) initialQuestionRef.current = '';
+            lastActionResultRef.current = 'none';
+          } catch { /* 내부 처리 */ }
+        } else {
+          // 세션 없음 → ShootingGuide 닫고 자동 시작 (완료 후 pendingGalleryFrameRef useEffect가 전송)
+          setShowShootingGuide(false);
+          try {
+            await guide.startSession(context);
+          } catch {
+            setStreamError('가이드 세션을 시작할 수 없어요.');
+            pendingGalleryFrameRef.current = null;
+          }
         }
+      } finally {
+        setQualityText('');
+        galleryProcessingRef.current = false;
+        setGalleryProcessing(false);
       }
     },
     [cvReady, guide, context, handleBiosOverlay, applyDetectedVendor, setTaskGoal],
@@ -1727,16 +1869,16 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
               }
             </button>
 
-            {/* 보조: 갤러리 사진 업로드 */}
+            {/* 보조: 갤러리 사진/동영상 업로드 */}
             <button
               type="button"
               className="nd-action-bar-btn"
               onClick={() => fileInputRef.current?.click()}
-              disabled={guide.captureState !== 'idle' || clipCaptureState !== 'idle'}
-              aria-label="갤러리에서 사진 선택"
+              disabled={guide.captureState !== 'idle' || clipCaptureState !== 'idle' || galleryProcessing}
+              aria-label="갤러리에서 사진 또는 동영상 선택"
             >
               <span className="nd-action-bar-icon">📁</span>
-              <span className="nd-action-bar-label">갤러리</span>
+              <span className="nd-action-bar-label">{galleryProcessing ? '분석 중…' : '갤러리'}</span>
             </button>
           </div>
           <div className="nd-capture-hint">탭: 사진 · 길게: 깜빡임/소리</div>
@@ -1747,7 +1889,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         style={{ display: 'none' }}
         onChange={handleGallerySelect}
         aria-hidden="true"
