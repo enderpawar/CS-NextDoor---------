@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDiagnosticClipSummary,
+  classifyDiagnosticClipMode,
   hasEnoughDiagnosticClipSamples,
   shouldStartDiagnosticClip,
 } from './useDiagnosticClipCapture';
@@ -27,7 +28,7 @@ describe('useDiagnosticClipCapture helpers', () => {
       audioSamples: [],
     });
 
-    expect(summary).toContain('captureMode=clip');
+    expect(summary).toContain('captureSource=clip');
     expect(summary).toContain('audioAvailable=false');
     expect(summary).toContain('audioPeakCount=0');
     expect(summary).toContain('ledBlinkLikely=true');
@@ -51,5 +52,32 @@ describe('useDiagnosticClipCapture helpers', () => {
 
     expect(summary).toContain('audioAvailable=true');
     expect(summary).toContain('beepOrNoiseLikely=true');
+  });
+
+  it('classifies unusable video plus audio evidence as audio-only', () => {
+    const result = classifyDiagnosticClipMode(0, {
+      peakCount: 2,
+      rmsMean: 0.09,
+      beepOrNoiseLikely: true,
+    });
+
+    expect(result.mode).toBe('audio-only');
+    expect(result.feedback).toContain('소리');
+  });
+
+  it('classifies usable video plus audio evidence as hybrid', () => {
+    expect(classifyDiagnosticClipMode(2, {
+      peakCount: 2,
+      rmsMean: 0.09,
+      beepOrNoiseLikely: true,
+    }).mode).toBe('hybrid');
+  });
+
+  it('classifies captures without audio evidence as visual', () => {
+    expect(classifyDiagnosticClipMode(2, {
+      peakCount: 0,
+      rmsMean: 0.01,
+      beepOrNoiseLikely: false,
+    }).mode).toBe('visual');
   });
 });

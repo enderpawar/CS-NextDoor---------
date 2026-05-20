@@ -5,7 +5,7 @@
  * LiveGuideMode 내부 오버레이로 동작.
  */
 
-import { Camera } from 'lucide-react';
+import { ArrowLeft, Camera } from 'lucide-react';
 import '../../styles/mobile.css';
 
 const C = {
@@ -23,6 +23,7 @@ const C = {
 
 interface Props {
   onDismiss: () => void;
+  onBack?: () => void;
 }
 
 function CornerMarker({ pos }: { pos: 'tl' | 'tr' | 'br' | 'bl' }) {
@@ -52,43 +53,62 @@ function TipRow({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function ShootingGuide({ onDismiss }: Props) {
+export default function ShootingGuide({ onDismiss, onBack }: Props) {
   return (
     <div style={{
       width: '100%', minHeight: '100%', background: C.bg,
       fontFamily: 'Pretendard, system-ui, sans-serif', color: C.ink,
       display: 'flex', flexDirection: 'column',
     }}>
-      <div style={{ height: 54 }}/>
+      <div style={{ height: 'max(env(safe-area-inset-top,0px),16px)', flexShrink: 0 }}/>
 
       {/* 네비 + 진행 */}
-      <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ width: 40 }}/>
+      <div style={{ padding: '6px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="뒤로가기"
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 12,
+            border: 'none',
+            background: C.surface,
+            boxShadow: `inset 0 0 0 1px ${C.line}`,
+            color: C.ink,
+            display: 'grid',
+            placeItems: 'center',
+            cursor: 'pointer',
+            visibility: onBack ? 'visible' : 'hidden',
+          }}
+        >
+          <ArrowLeft size={20} aria-hidden="true"/>
+        </button>
         <span style={{ fontSize: 12.5, fontWeight: 700, color: C.inkFaint, letterSpacing: 0.3 }}>2 / 3</span>
         <div style={{ width: 40 }}/>
       </div>
-      <div style={{ padding: '4px 22px 0' }}>
+      <div style={{ padding: '3px 22px 0', flexShrink: 0 }}>
         <div style={{ height: 4, borderRadius: 4, background: C.line, position: 'relative' }}>
           <div style={{ position: 'absolute', inset: 0, width: '66%', background: C.brand, borderRadius: 4 }}/>
         </div>
       </div>
 
       {/* 제목 */}
-      <div style={{ padding: '22px 22px 0' }}>
+      <div style={{ padding: 'clamp(12px,3dvh,20px) 22px 0', flexShrink: 0 }}>
         <div style={{ display: 'inline-flex', padding: '5px 10px', borderRadius: 999, background: C.brandSoft, color: C.brand, fontSize: 11.5, fontWeight: 800, letterSpacing: 0.3, marginBottom: 10 }}>
           STEP · 촬영 준비
         </div>
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, letterSpacing: -1.1, lineHeight: 1.25 }}>
+        <h1 style={{ margin: 0, fontSize: 25, fontWeight: 800, letterSpacing: -1.1, lineHeight: 1.18 }}>
           PC 화면을<br/>비춰주세요
         </h1>
-        <p style={{ margin: '8px 0 0', color: C.inkSoft, fontSize: 14.5, letterSpacing: -0.3, fontWeight: 500 }}>
+        <p style={{ margin: '6px 0 0', color: C.inkSoft, fontSize: 14, letterSpacing: -0.3, fontWeight: 500 }}>
           BIOS 글자가 또렷이 보이도록 가까이.
         </p>
       </div>
 
       {/* 일러스트 — 모니터 + 뷰파인더 */}
-      <div style={{ padding: '22px 22px 0', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ position: 'relative', flex: 1, borderRadius: 24, background: `linear-gradient(180deg, ${C.brandFaint}, ${C.surface})`, overflow: 'hidden', boxShadow: `inset 0 0 0 1px ${C.line}`, minHeight: 280 }}>
+      <div style={{ padding: 'clamp(14px,3dvh,20px) 22px 0', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ position: 'relative', flex: 1, borderRadius: 20, background: `linear-gradient(180deg, ${C.brandFaint}, ${C.surface})`, overflow: 'hidden', boxShadow: `inset 0 0 0 1px ${C.line}`, minHeight: 190 }}>
 
           {/* 모의 PC 모니터 */}
           <div style={{ position: 'absolute', inset: '38px 32px 86px', borderRadius: 10, background: '#0d1117', boxShadow: 'inset 0 0 0 4px #1a1f29, 0 10px 24px rgba(0,0,0,0.18)', overflow: 'hidden' }}>
@@ -121,7 +141,7 @@ export default function ShootingGuide({ onDismiss }: Props) {
         </div>
 
         {/* 팁 */}
-        <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 7, flexShrink: 0 }}>
           <TipRow>화면 전체가 가득 차게</TipRow>
           <TipRow>밝은 곳에서 촬영해주세요</TipRow>
           <TipRow>흔들리지 않게 5초 고정</TipRow>
@@ -129,7 +149,7 @@ export default function ShootingGuide({ onDismiss }: Props) {
       </div>
 
       {/* CTA */}
-      <div style={{ padding: `14px 22px max(env(safe-area-inset-bottom,0px),24px)` }}>
+      <div style={{ padding: `10px 22px max(env(safe-area-inset-bottom,0px),18px)`, flexShrink: 0 }}>
         <button type="button" onClick={onDismiss} style={{ width: '100%', height: 56, borderRadius: 28, border: 'none', background: C.brand, color: '#fff', fontFamily: 'Pretendard, system-ui', fontWeight: 800, fontSize: 17, letterSpacing: -0.3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: `0 8px 20px -8px ${C.brand}88` }}>
           <Camera size={18}/>
           촬영 시작하기

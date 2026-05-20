@@ -1,7 +1,7 @@
 /**
  * PwaPage — Claude Design 포팅 (옆집 컴공생.html)
  *
- * 화면 흐름: onboarding(01) → home(02) → context(03) → live-guide(05) / audio-capture(06)
+ * 화면 흐름: onboarding(01) → home(02) → context(03) → live-guide(05)
  *
  * iOS Safari: 카메라 권한 유지를 위해 페이지 이동 금지.
  * 기능 전환은 state 기반 (페이지 이동 없음).
@@ -9,14 +9,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Camera, CheckCircle2, History, Mic, ScanLine, Sparkles,
-  ArrowRight,
+  AlertCircle, Camera, CheckCircle2, CircleHelp, Cpu, FileImage, History, ImagePlus, Keyboard, Mic, Monitor, Power, Sparkles,
+  ArrowLeft, ArrowRight, Trash2, Wrench,
 } from 'lucide-react';
-import type { BiosType, GuideContext } from '../../types';
+import type { GuideContext } from '../../types';
 import '../../styles/mobile.css';
 import LiveGuideMode  from './LiveGuideMode';
-import BiosTypeSelector from './BiosTypeSelector';
-import AudioCapture   from './AudioCapture';
 
 // ── 디자인 시스템 — Ocean 팔레트 ─────────────────────────────────────────────
 const C = {
@@ -35,7 +33,17 @@ const C = {
 } as const;
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
-type PwaView = 'onboarding' | 'home' | 'context' | 'live-guide' | 'audio-capture';
+type PwaView = 'onboarding' | 'home' | 'context' | 'gallery' | 'live-guide';
+type GuideInputMode = 'camera' | 'gallery';
+
+interface ProblemOption {
+  id: string;
+  icon: React.ReactNode;
+  title: string;
+  sub: string;
+  context: GuideContext;
+  question: string;
+}
 
 interface PwaHistoryState {
   ndPwaView?: PwaView;
@@ -159,6 +167,49 @@ function ReadinessItem({ icon, label, status }: { icon: React.ReactNode; label: 
   );
 }
 
+const PROBLEM_OPTIONS: ProblemOption[] = [
+  {
+    id: 'no-boot',
+    icon: <Power size={20}/>,
+    title: '부팅이 안 돼요',
+    sub: '검은 화면, 로고 멈춤, 전원은 들어오는 상황',
+    context: 'NO_BOOT',
+    question: '부팅이 안 돼요. 전원 LED, 모니터 화면, 제조사 로고부터 확인해주세요.',
+  },
+  {
+    id: 'bios',
+    icon: <Keyboard size={20}/>,
+    title: 'BIOS/USB 부팅 설정',
+    sub: 'Windows 설치, 부팅 순서, Secure Boot',
+    context: 'BIOS_BOOT',
+    question: 'BIOS 또는 USB 부팅 설정을 도와주세요. 현재 화면에서 다음에 눌러야 할 곳을 알려주세요.',
+  },
+  {
+    id: 'error-screen',
+    icon: <AlertCircle size={20}/>,
+    title: '오류 화면이 떠요',
+    sub: '블루스크린, 경고창, 멈춘 화면',
+    context: 'BLUE_SCREEN',
+    question: '오류 화면이 떠요. 화면의 문구와 코드를 보고 원인과 다음 조치를 알려주세요.',
+  },
+  {
+    id: 'inside-pc',
+    icon: <Cpu size={20}/>,
+    title: '본체 내부를 확인하고 싶어요',
+    sub: 'RAM, 그래픽카드, 케이블 상태 확인',
+    context: 'HW_REPAIR_RAM',
+    question: '본체 내부 상태를 확인하고 싶어요. RAM과 주요 부품을 안전하게 점검하도록 안내해주세요.',
+  },
+  {
+    id: 'unknown',
+    icon: <CircleHelp size={20}/>,
+    title: '잘 모르겠어요',
+    sub: '화면 단서부터 보고 같이 분류',
+    context: 'GENERAL',
+    question: '',
+  },
+];
+
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export default function PwaPage({ isStandalone }: Props) {
@@ -169,11 +220,14 @@ export default function PwaPage({ isStandalone }: Props) {
       return 'onboarding';
     }
   });
-  const [selectedCtx, setSelectedCtx] = useState<GuideContext | 'beep'>('GENERAL');
+  const [selectedCtx, setSelectedCtx] = useState<GuideContext>('GENERAL');
+  const [guideInputMode, setGuideInputMode] = useState<GuideInputMode>('camera');
+  const [initialGalleryFiles, setInitialGalleryFiles] = useState<File[]>([]);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [symptomText, setSymptomText] = useState('');
   const [initialGuideQuestion, setInitialGuideQuestion] = useState('');
-  const [biosType,    setBiosType]   = useState<BiosType | null>(null);
   const [bottomDockOffset, setBottomDockOffset] = useState(0);
+  const homeGalleryInputRef = useRef<HTMLInputElement>(null);
   const historyIndexRef = useRef(0);
   const viewRef = useRef<PwaView>(view);
 
@@ -290,34 +344,44 @@ export default function PwaPage({ isStandalone }: Props) {
     window.alert('Phase 10에서 제공될 예정이에요.');
   }, []);
 
+  const startGuide = useCallback((option: ProblemOption, mode: GuideInputMode = 'camera', files: File[] = []) => {
+    setSymptomText('');
+    setSelectedCtx(option.context);
+    setInitialGuideQuestion(option.question);
+    setGuideInputMode(mode);
+    setInitialGalleryFiles(files);
+    navigateTo('live-guide');
+  }, [navigateTo]);
+
+  const appendGalleryFiles = useCallback((files: FileList | File[]) => {
+    const nextFiles = Array.from(files).filter(file => file.type.startsWith('image/') || file.type.startsWith('video/'));
+    if (!nextFiles.length) return;
+    setGalleryFiles(current => [...current, ...nextFiles].slice(0, 8));
+  }, []);
+
+  const removeGalleryFile = useCallback((index: number) => {
+    setGalleryFiles(current => current.filter((_, i) => i !== index));
+  }, []);
+
+  const startGalleryGuide = useCallback(() => {
+    const trimmed = symptomText.trim();
+    setSelectedCtx(trimmed ? inferGuideContextFromText(trimmed) : PROBLEM_OPTIONS[4]!.context);
+    setInitialGuideQuestion(trimmed);
+    setGuideInputMode('gallery');
+    setInitialGalleryFiles(galleryFiles);
+    navigateTo('live-guide');
+  }, [galleryFiles, navigateTo, symptomText]);
+
   // ── 진단 모드 뷰 ──────────────────────────────────────────────────────────
   if (view === 'live-guide') {
     return (
       <LiveGuideMode
-        initialContext={selectedCtx === 'beep' ? 'GENERAL' : selectedCtx}
+        initialContext={selectedCtx}
         initialQuestion={initialGuideQuestion}
+        initialInputMode={guideInputMode}
+        initialGalleryFiles={initialGalleryFiles}
         onExit={exitToHome}
       />
-    );
-  }
-
-  if (view === 'audio-capture') {
-    return (
-      <div style={{ minHeight: '100dvh', background: '#0a0f17', fontFamily: 'Pretendard, system-ui', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ height: 54 }}/>
-        <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button type="button" onClick={goBackToHome} aria-label="홈으로" style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: 'rgba(255,255,255,0.10)', color: '#fff', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          </button>
-          <span style={{ color: 'rgba(255,255,255,0.65)', fontWeight: 700, fontSize: 13, letterSpacing: 0.3 }}>AUDIO CAPTURE</span>
-        </div>
-        <div style={{ padding: '0 16px', flex: 1 }}>
-          <BiosTypeSelector selected={biosType} onSelect={setBiosType}/>
-          <div style={{ marginTop: '0.75rem' }}>
-            <AudioCapture biosType={biosType} symptom="부팅 시 비프음 패턴 분석"/>
-          </div>
-        </div>
-      </div>
     );
   }
 
@@ -329,7 +393,7 @@ export default function PwaPage({ isStandalone }: Props) {
         <div style={{ position: 'absolute', top: -120, right: -80, width: 320, height: 320, borderRadius: '50%', background: C.brand, opacity: 0.08, filter: 'blur(40px)', pointerEvents: 'none' }}/>
         <div style={{ position: 'absolute', top: 180, left: -100, width: 240, height: 240, borderRadius: '50%', background: C.accent, opacity: 0.10, filter: 'blur(50px)', pointerEvents: 'none' }}/>
 
-        <div style={{ height: 54 }}/>
+        <div style={{ height: 'max(env(safe-area-inset-top,0px),16px)', flexShrink: 0 }}/>
 
         {/* 건너뛰기 */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 22px' }}>
@@ -337,7 +401,7 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
 
         {/* 히어로 */}
-        <div style={{ padding: '36px 28px 0', display: 'flex', flexDirection: 'column', gap: 22, flex: 1 }}>
+        <div style={{ padding: 'clamp(18px,5dvh,32px) 24px 0', display: 'flex', flexDirection: 'column', gap: 18, flex: 1, minHeight: 0 }}>
           <AppLogo size={72}/>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: C.brandSoft, color: C.brand, fontSize: 12.5, fontWeight: 700, letterSpacing: -0.2, marginBottom: 14 }}>
@@ -356,7 +420,7 @@ export default function PwaPage({ isStandalone }: Props) {
           </div>
 
           {/* 피처 행 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 'auto', paddingBottom: 180 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 'auto', paddingBottom: 'clamp(132px,22dvh,166px)' }}>
             <FeatureRow icon={<Camera size={20}/>}   title="카메라로 PC 화면 진단"    sub="BIOS · 에러 메시지 · 부팅 화면"/>
             <FeatureRow icon={<Mic size={20}/>}      title="비프음으로 하드웨어 진단" sub="삐 — 삐삐 패턴을 인식해요"/>
             <FeatureRow icon={<Sparkles size={20}/>} title="증상 단서를 모아 안내해요" sub="처음 보는 화면도 단계별로 확인"/>
@@ -388,11 +452,11 @@ export default function PwaPage({ isStandalone }: Props) {
     };
 
     return (
-      <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ height: 54 }}/>
+      <div style={{ minHeight: '100dvh', height: '100dvh', overflow: 'hidden', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ height: 'max(env(safe-area-inset-top,0px),16px)', flexShrink: 0 }}/>
 
         {/* 네비 */}
-        <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '6px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <button type="button" onClick={goBackToHome} style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke={C.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </button>
@@ -401,23 +465,23 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
 
         {/* 진행 바 */}
-        <div style={{ padding: '4px 22px 0' }}>
+        <div style={{ padding: '3px 22px 0', flexShrink: 0 }}>
           <div style={{ height: 4, borderRadius: 4, background: C.line, position: 'relative' }}>
             <div style={{ position: 'absolute', inset: 0, width: '33%', background: C.brand, borderRadius: 4 }}/>
           </div>
         </div>
 
         {/* 제목 */}
-        <div style={{ padding: '24px 22px 4px' }}>
-          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, letterSpacing: -1.1, lineHeight: 1.25 }}>어떤 문제가 있나요?</h1>
-          <p style={{ margin: '8px 0 0', color: C.inkSoft, fontSize: 14.5, letterSpacing: -0.3, fontWeight: 500 }}>
+        <div style={{ padding: 'clamp(14px,3.2dvh,22px) 22px 2px', flexShrink: 0 }}>
+          <h1 style={{ margin: 0, fontSize: 25, fontWeight: 800, letterSpacing: -1.1, lineHeight: 1.22 }}>어떤 문제가 있나요?</h1>
+          <p style={{ margin: '6px 0 0', color: C.inkSoft, fontSize: 14, letterSpacing: -0.3, fontWeight: 500, lineHeight: 1.45 }}>
             보이는 증상이나 궁금한 점을 편하게 적어주세요.<br/>
             비워두고 시작하면 화면 단서부터 먼저 볼게요.
           </p>
         </div>
 
         {/* 자유 입력 */}
-        <div style={{ padding: '18px 22px 0', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+        <div style={{ padding: '12px 22px 0', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <span style={{ color: C.inkSoft, fontSize: 12.5, fontWeight: 600, lineHeight: 1.45 }}>
             사진처럼 화면을 비추면 입력한 내용과 같이 분석해요.
           </span>
@@ -427,14 +491,14 @@ export default function PwaPage({ isStandalone }: Props) {
               onChange={e => setSymptomText(e.target.value)}
               placeholder={'예: 전원은 들어오는데 모니터에 아무것도 안 떠요\n예: BIOS 화면에서 USB 부팅을 어디서 고르는지 모르겠어요'}
               maxLength={220}
-              rows={6}
+              rows={4}
               style={{
                 width: '100%',
-                minHeight: 150,
+                minHeight: 112,
                 resize: 'vertical',
                 border: 'none',
                 borderRadius: 20,
-                padding: '16px 16px 34px',
+                padding: '14px 16px 30px',
                 background: C.surface,
                 boxShadow: `inset 0 0 0 1.5px ${C.line}`,
                 color: C.ink,
@@ -451,7 +515,7 @@ export default function PwaPage({ isStandalone }: Props) {
             </span>
           </div>
 
-          <div style={{ marginTop: 8, padding: 14, borderRadius: 18, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
+          <div style={{ marginTop: 4, padding: 12, borderRadius: 16, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: C.brand, fontSize: 13, fontWeight: 800 }}>
               <Sparkles size={16}/>
               바로 말하기 어려우면
@@ -463,7 +527,7 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
 
         {/* 하단 CTA */}
-        <div style={{ padding: `calc(12px + ${bottomDockOffset}px) 22px max(env(safe-area-inset-bottom,0px), calc(30px + ${bottomDockOffset}px))`, background: C.bg, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ padding: `8px 22px max(env(safe-area-inset-bottom,0px), calc(18px + ${bottomDockOffset}px))`, background: C.bg, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('live-guide', { replace: true }); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
               ✨ 입력 없이 화면부터 보기
@@ -477,78 +541,184 @@ export default function PwaPage({ isStandalone }: Props) {
     );
   }
 
-  // ── Screen 02: 홈 ────────────────────────────────────────────────────────
+  // ── Screen 04: 사진/영상 선택 ─────────────────────────────────────────────
+  if (view === 'gallery') {
+    const hasFiles = galleryFiles.length > 0;
+
+    return (
+      <div className="nd-pwa-gallery-page" style={{ paddingBottom: `calc(env(safe-area-inset-bottom,0px) + 22px + ${bottomDockOffset}px)` }}>
+        <div style={{ height: 'max(env(safe-area-inset-top,0px),18px)' }}/>
+
+        <div className="nd-pwa-gallery-nav">
+          <button type="button" onClick={goBackToHome} aria-label="뒤로가기">
+            <ArrowLeft size={20} aria-hidden="true"/>
+          </button>
+          <span>사진으로 시작</span>
+          <div aria-hidden="true"/>
+        </div>
+
+        <div className="nd-pwa-gallery-hero">
+          <div className="nd-pwa-gallery-kicker">
+            <ImagePlus size={14} aria-hidden="true"/>
+            여러 장을 한 번에 확인
+          </div>
+          <h1>PC 화면 사진을 골라주세요</h1>
+          <p>사진과 함께 지금 겪는 증상을 적어두면 화면 단서를 더 정확히 좁혀볼 수 있어요.</p>
+        </div>
+
+        <div className="nd-pwa-gallery-panel">
+          <button
+            type="button"
+            className={`nd-pwa-gallery-drop${hasFiles ? ' has-files' : ''}`}
+            onClick={() => homeGalleryInputRef.current?.click()}
+          >
+            <span className="nd-pwa-gallery-drop-icon">
+              {hasFiles ? <CheckCircle2 size={26} aria-hidden="true"/> : <ImagePlus size={28} aria-hidden="true"/>}
+            </span>
+            <strong>{hasFiles ? `${galleryFiles.length}개 선택됨` : '사진/영상 선택'}</strong>
+            <span>사진은 여러 장, 영상은 15초 이하를 권장해요.</span>
+          </button>
+
+          <input
+            ref={homeGalleryInputRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={e => {
+              if (e.currentTarget.files) appendGalleryFiles(e.currentTarget.files);
+              e.currentTarget.value = '';
+            }}
+            aria-hidden="true"
+          />
+
+          {hasFiles && (
+            <div className="nd-pwa-gallery-list" aria-label="선택한 파일">
+              {galleryFiles.map((file, index) => (
+                <div key={`${file.name}-${file.lastModified}-${index}`} className="nd-pwa-gallery-file">
+                  <span className="nd-pwa-gallery-file-icon">
+                    <FileImage size={17} aria-hidden="true"/>
+                  </span>
+                  <span className="nd-pwa-gallery-file-copy">
+                    <strong>{file.name}</strong>
+                    <span>{file.type.startsWith('video/') ? '동영상' : '사진'} · {(file.size / 1024 / 1024).toFixed(1)}MB</span>
+                  </span>
+                  <button type="button" onClick={() => removeGalleryFile(index)} aria-label={`${file.name} 제거`}>
+                    <Trash2 size={16} aria-hidden="true"/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <label className="nd-pwa-gallery-symptom" htmlFor="nd-pwa-gallery-symptom-input">
+            <span>증상 메모</span>
+            <textarea
+              id="nd-pwa-gallery-symptom-input"
+              value={symptomText}
+              onChange={e => setSymptomText(e.target.value)}
+              maxLength={220}
+              rows={4}
+              placeholder={'예: 전원은 들어오는데 화면이 안 떠요\n예: BIOS에서 USB 부팅 메뉴를 못 찾겠어요'}
+            />
+            <small>{symptomText.length}/220</small>
+          </label>
+
+          <div className="nd-pwa-gallery-actions">
+            <button type="button" className="nd-pwa-gallery-secondary" onClick={() => homeGalleryInputRef.current?.click()}>
+              더 추가
+            </button>
+            <button type="button" className="nd-pwa-gallery-primary" onClick={startGalleryGuide} disabled={!hasFiles}>
+              분석 시작 <ArrowRight size={17} aria-hidden="true"/>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Screen 02: 문제 선택 홈 ───────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100dvh', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column', paddingBottom: `calc(env(safe-area-inset-bottom,0px) + 24px + ${bottomDockOffset}px)` }}>
-      <div style={{ height: 54 }}/>
+    <div className="nd-pwa-intake-page" style={{ paddingBottom: `calc(env(safe-area-inset-bottom,0px) + 20px + ${bottomDockOffset}px)` }}>
+      <div style={{ height: 'max(env(safe-area-inset-top,0px),16px)', flexShrink: 0 }}/>
 
       {/* 탑바 */}
-      <div style={{ padding: '8px 22px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="nd-pwa-intake-topbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <AppLogo size={32}/>
-          <AppWordmark size={18} compact/>
+          <AppWordmark size={18}/>
         </div>
-        <button type="button" onClick={showComingSoon} title="Phase 10 예정" aria-label="히스토리 보기 예정" style={{ width: 40, height: 40, borderRadius: 12, border: 'none', background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', position: 'relative', color: C.inkSoft, cursor: 'pointer' }}>
+        <button type="button" className="nd-pwa-icon-btn" onClick={showComingSoon} title="Phase 10 예정" aria-label="히스토리 보기 예정">
           <History size={20}/>
         </button>
       </div>
 
-      {/* 인사 */}
-      <div style={{ padding: '24px 22px 12px' }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: C.inkSoft, letterSpacing: -0.3 }}>안녕하세요 👋</div>
-        <h1 style={{ margin: '4px 0 0', fontSize: 26, fontWeight: 800, lineHeight: 1.3, letterSpacing: -1.2 }}>
-          오늘은<br/>어떤 문제가 있나요?
-        </h1>
+      <div className="nd-pwa-intake-hero">
+        <div className="nd-pwa-intake-status">
+          <span className="nd-pwa-intake-dot" aria-hidden="true"/>
+          카메라 진단 준비됨
+        </div>
+        <h1>무슨 문제를 도와드릴까요?</h1>
+        <p>문제를 고르면 바로 카메라 화면에서 다음 조치를 안내합니다.</p>
       </div>
 
-      {/* 메인 CTA 카드 */}
-      <div style={{ padding: '12px 22px 0' }}>
-        <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('live-guide'); }} style={{ width: '100%', borderRadius: 24, padding: 18, position: 'relative', overflow: 'hidden', background: `linear-gradient(140deg, ${C.brand} 0%, ${C.brandDeep} 100%)`, color: '#fff', boxShadow: `0 16px 30px -16px ${C.brand}aa`, border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Pretendard, system-ui' }}>
-          {/* 데코 링 */}
-          <div style={{ position: 'absolute', right: -50, top: -50, width: 180, height: 180, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.22)', pointerEvents: 'none' }}/>
-          <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.16)', pointerEvents: 'none' }}/>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, opacity: 0.85, letterSpacing: 0.4 }}>
-            <Sparkles size={12}/>
-            화면 단서 분석
+      <div className="nd-pwa-intake-sheet">
+        <div className="nd-pwa-sheet-handle" aria-hidden="true"/>
+        <div className="nd-pwa-intake-sheet-head">
+          <div>
+            <strong>작업 선택</strong>
+            <span>나중에 카메라 화면에서도 바꿀 수 있어요.</span>
           </div>
-          <div style={{ fontSize: 22, fontWeight: 800, marginTop: 8, letterSpacing: -0.8 }}>
-            PC 화면을 비추면<br/>바로 분석해요
-          </div>
-          <div style={{ fontSize: 13, opacity: 0.85, marginTop: 6, letterSpacing: -0.2, fontWeight: 500 }}>
-            오류 문구, 부팅 화면, 검은 화면 단서를 카메라로 확인합니다
-          </div>
-          <div style={{ marginTop: 14, height: 44, borderRadius: 22, background: 'rgba(255,255,255,0.96)', color: C.brand, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>
-            <Camera size={18}/>
-            진단 시작하기
-          </div>
-        </button>
-        <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('context'); }} style={{ width: '100%', marginTop: 12, border: 'none', background: 'transparent', color: C.brand, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 13.5, fontWeight: 800, letterSpacing: -0.2 }}>
-          증상을 먼저 적고 시작할게요
-          <ArrowRight size={17}/>
+          <Monitor size={20} aria-hidden="true"/>
+        </div>
+
+        <div className="nd-pwa-problem-list">
+          {PROBLEM_OPTIONS.map(option => (
+            <button
+              key={option.id}
+              type="button"
+              className="nd-pwa-problem-option"
+              onClick={() => startGuide(option)}
+            >
+              <span className="nd-pwa-problem-icon">{option.icon}</span>
+              <span className="nd-pwa-problem-copy">
+                <strong>{option.title}</strong>
+                <span>{option.sub}</span>
+              </span>
+              <ArrowRight size={18} aria-hidden="true"/>
+            </button>
+          ))}
+        </div>
+
+        <div className="nd-pwa-direct-row">
+          <button type="button" onClick={() => navigateTo('context')}>
+            <Wrench size={16} aria-hidden="true"/>
+            직접 증상 입력
+          </button>
+          <button type="button" onClick={() => { setGalleryFiles([]); setSymptomText(''); navigateTo('gallery'); }}>
+            <ImagePlus size={16} aria-hidden="true"/>
+            사진/영상으로 시작
+          </button>
+        </div>
+
+        <button
+          type="button"
+          className="nd-pwa-primary-start"
+          onClick={() => startGuide(PROBLEM_OPTIONS[4]!)}
+        >
+          <Camera size={19} aria-hidden="true"/>
+          일단 화면부터 보기
         </button>
       </div>
 
-      {/* 진단 준비 상태 */}
-      <div style={{ padding: '20px 22px 0' }}>
-        <div style={{ padding: 16, borderRadius: 20, background: C.surface, boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.4 }}>화면 진단 준비됨</div>
-              <p style={{ margin: '5px 0 0', fontSize: 12.8, lineHeight: 1.45, color: C.inkSoft, fontWeight: 600, letterSpacing: -0.2 }}>
-                카메라로 오류 문구와 화면 단서를 확인할 수 있어요.
-              </p>
-            </div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 8px', borderRadius: 999, background: '#e8f5ee', color: C.ok, fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
-              <CheckCircle2 size={13}/>
-              시작 가능
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <ReadinessItem icon={<Camera size={17}/>} label="카메라" status="화면 단서 확인"/>
-            <ReadinessItem icon={<ScanLine size={17}/>} label="화면 읽기" status="문구·메뉴 확인"/>
-            <ReadinessItem icon={<Mic size={17}/>} label="마이크" status="비프음 선택 진단"/>
-            <ReadinessItem icon={<Sparkles size={17}/>} label="해결 안내" status="단계별 진행"/>
-          </div>
+      <div className="nd-pwa-intake-assurance">
+        <div>
+          <Sparkles size={16} aria-hidden="true"/>
+          <span>잘 모르겠다면 화면을 비추는 것부터 시작하세요.</span>
+        </div>
+        <div>
+          <Mic size={16} aria-hidden="true"/>
+          <span>비프음이나 깜빡임은 촬영 중에 같이 확인할 수 있어요.</span>
         </div>
       </div>
 

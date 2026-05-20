@@ -1,6 +1,6 @@
 // Service Worker — nextdoor-cs
 // ⚠️ 배포마다 버전 올릴 것 (구버전 캐시와 새 API 충돌 방지)
-const CACHE = 'nextdoorcs-v1';
+const CACHE = 'nextdoorcs-v3';
 
 // opencv.js (~8MB) 반드시 포함 — WASM 오프라인 동작 필수
 const PRECACHE = [
@@ -8,6 +8,9 @@ const PRECACHE = [
   '/index.html',
   '/opencv.js',
   '/manifest.json',
+  '/icons/apple-touch-icon.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
 ];
 
 self.addEventListener('install', event => {
@@ -32,6 +35,13 @@ self.addEventListener('fetch', event => {
 
   // /api/* 요청은 캐시 사용 안 함 — 항상 네트워크
   if (event.request.url.includes('/api/')) return;
+
+  if (event.request.mode === 'navigate' || event.request.url.endsWith('/index.html')) {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then(cached => {

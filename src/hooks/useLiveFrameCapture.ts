@@ -61,6 +61,12 @@ interface UseLiveFrameCaptureOptions {
   enableBiosPreprocess?: boolean;
   /** true일 때만 화면 변화 감지를 Gemini 프레임 전송으로 연결한다. */
   enableAutoFrameSend?: boolean;
+  /**
+   * true면 rAF 루프 안의 OpenCV 처리(품질 분석·히스토그램·BIOS 전처리/OCR)를 건너뛴다.
+   * 카메라 트랙은 살려두므로 시트/모달 해제 즉시 끊김 없이 재개됨.
+   * 토글마다 rAF 재구독을 피하려고 ref로 읽는다.
+   */
+  paused?: boolean;
   cooldownMs?:       number;
   histThreshold?:    number;
   minQualityScore?:  number;
@@ -79,6 +85,7 @@ export function useLiveFrameCapture({
   enableBiosVendorOcr = false,
   enableBiosPreprocess = true,
   enableAutoFrameSend = true,
+  paused = false,
   cooldownMs      = 2000,
   histThreshold   = BEST_PARAMS.threshold,
   minQualityScore = 30,
@@ -96,6 +103,9 @@ export function useLiveFrameCapture({
   const prevVendorOcrEnabledRef = useRef(enableBiosVendorOcr);
   // stale guide 비교용: 응답 도착 시 LiveGuideMode에서 이 ref를 읽음
   const currentHistRef     = useRef<any>(null);
+  // paused는 ref로 읽어서 토글마다 rAF 재구독(=prevHist 손실)을 피한다.
+  const pausedRef          = useRef<boolean>(paused);
+  pausedRef.current = paused;
 
   // enableBiosVendorOcr false → true 엣지에서 카운터 리셋
   // (컨텍스트 변경 또는 vendor 감지 해제 시 새로운 시도 세션 시작)
@@ -105,11 +115,27 @@ export function useLiveFrameCapture({
   }
   prevVendorOcrEnabledRef.current = enableBiosVendorOcr;
 
+  const emitQualityFeedback = useCallback((message: string) => {
+    if (!onQualityFeedback || lastFeedbackRef.current === message) return;
+    lastFeedbackRef.current = message;
+    onQualityFeedback(message);
+  }, [onQualityFeedback]);
+
   const processFrame = useCallback(() => {
     const video  = videoRef.current;
     const canvas = canvasRef.current;
 
     if (!video || !canvas || !cvReady || video.readyState < 2) {
+      rafRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
+
+    // 일시정지 — GoalInputSheet 같은 풀스크린 모달 동안 OpenCV 부하 차단.
+    // 비디오 트랙은 살아있고 prevHistRef도 유지되므로 해제 즉시 끊김 없이 재개.
+    // 단, 일시정지 동안 화면이 바뀌었어도 새 베이스라인은 잡지 않는다.
+    if (pausedRef.current) {
+      changeCountRef.current = 0;
+      emitQualityFeedback('');
       rafRef.current = requestAnimationFrame(processFrame);
       return;
     }
@@ -134,12 +160,6 @@ export function useLiveFrameCapture({
       data:   rgba.data,
     };
     const metrics = analyzeFrame(frameInput);
-
-    const emitQualityFeedback = (message: string) => {
-      if (!onQualityFeedback || lastFeedbackRef.current === message) return;
-      lastFeedbackRef.current = message;
-      onQualityFeedback(message);
-    };
 
     if (!metrics.isUsable || metrics.qualityScore < minQualityScore) {
       // 사용자 요청: 흔들림(stabilize) 같은 경우에만 메시지 노출. 나머지는 조용히 프레임만 거부.
@@ -278,8 +298,8 @@ export function useLiveFrameCapture({
     rafRef.current = requestAnimationFrame(processFrame);
   }, [
     cvReady, canvasRef, videoRef, isSendingRef,
-    onFrameChange, onQualityFeedback, onMetricsUpdate, onBiosOverlay,
-    onBiosVendorDetected, enableBiosVendorOcr, enableAutoFrameSend,
+    onFrameChange, emitQualityFeedback, onMetricsUpdate, onBiosOverlay,
+    onBiosVendorDetected, enableBiosVendorOcr, enableBiosPreprocess, enableAutoFrameSend,
     cooldownMs, histThreshold, minQualityScore,
   ]);
 

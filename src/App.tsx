@@ -12,35 +12,58 @@ import './styles/animations.css';
 
 
 const CPU_HISTORY_MAX = 60;
-const INTRO_TRANSITION_MS = 650;
+const INTRO_TRANSITION_MS = 820;
 
-// 인트로 로고 — PwaPage의 AppLogo와 동일한 디자인
+// 인트로 로고 — 오비탈 링 + 글로우로 강화
 function IntroLogo() {
-  const size = 88;
+  const size = 96;
   return (
-    <div style={{
-      width: size, height: size, borderRadius: size * 0.28,
-      background: 'linear-gradient(155deg, oklch(0.56 0.15 245) 0%, oklch(0.42 0.16 248) 100%)',
-      display: 'grid', placeItems: 'center', position: 'relative', overflow: 'hidden',
-      boxShadow: `0 11px 26px -9px oklch(0.56 0.15 245 / 0.34)`,
-      flexShrink: 0,
-      animation: 'ndIntroLogoIn 520ms cubic-bezier(0.16,1,0.3,1) 80ms both',
-    }}>
-      <div style={{
-        width: size * 0.56, height: size * 0.42, borderRadius: size * 0.1,
-        background: 'rgba(255,255,255,0.12)',
-        border: '2px solid rgba(255,255,255,0.92)',
-        display: 'grid', placeItems: 'center',
+    <div className="nd-intro-logo-stage" style={{ width: size * 2.2, height: size * 2.2 }}>
+      <div className="nd-intro-orbit-ring nd-intro-orbit-ring--outer" aria-hidden="true"/>
+      <div className="nd-intro-orbit-ring nd-intro-orbit-ring--inner" aria-hidden="true"/>
+      <div className="nd-intro-orbit-dot nd-intro-orbit-dot--one" aria-hidden="true"/>
+      <div className="nd-intro-orbit-dot nd-intro-orbit-dot--two" aria-hidden="true"/>
+      <div className="nd-intro-logo-glow" aria-hidden="true"/>
+      <div className="nd-intro-logo-tile" style={{
+        width: size, height: size, borderRadius: size * 0.28,
+        background: 'linear-gradient(155deg, oklch(0.56 0.15 245) 0%, oklch(0.42 0.16 248) 100%)',
+        display: 'grid', placeItems: 'center', position: 'relative', overflow: 'hidden',
+        boxShadow: `0 18px 40px -10px oklch(0.56 0.15 245 / 0.55), 0 0 0 1px rgba(255,255,255,0.08) inset`,
       }}>
-        <div style={{ width: size * 0.22, height: size * 0.05, borderRadius: size * 0.03, background: '#fff' }}/>
+        <div style={{
+          width: size * 0.56, height: size * 0.42, borderRadius: size * 0.1,
+          background: 'rgba(255,255,255,0.12)',
+          border: '2px solid rgba(255,255,255,0.92)',
+          display: 'grid', placeItems: 'center',
+        }}>
+          <div style={{ width: size * 0.22, height: size * 0.05, borderRadius: size * 0.03, background: '#fff' }}/>
+        </div>
+        <div style={{
+          position: 'absolute', right: size * 0.14, bottom: size * 0.14,
+          width: size * 0.2, height: size * 0.2, borderRadius: '50%',
+          background: 'oklch(0.78 0.13 195)',
+          boxShadow: `0 0 0 ${size * 0.04}px oklch(0.56 0.15 245)`,
+        }}/>
+        <span className="nd-intro-logo-sheen" aria-hidden="true"/>
       </div>
-      <div style={{
-        position: 'absolute', right: size * 0.14, bottom: size * 0.14,
-        width: size * 0.2, height: size * 0.2, borderRadius: '50%',
-        background: 'oklch(0.78 0.13 195)',
-        boxShadow: `0 0 0 ${size * 0.04}px oklch(0.56 0.15 245)`,
-      }}/>
     </div>
+  );
+}
+
+// 한 글자씩 카스케이드 등장 — Pretendard 두께 강조
+function IntroLetters({ text, baseDelay = 0 }: { text: string; baseDelay?: number }) {
+  return (
+    <>
+      {Array.from(text).map((ch, i) => (
+        <span
+          key={`${ch}-${i}`}
+          className="nd-intro-char"
+          style={{ animationDelay: `${baseDelay + i * 55}ms` }}
+        >
+          {ch === ' ' ? ' ' : ch}
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -49,7 +72,7 @@ export default function App() {
   const sysInfo = useSystemInfo();
   const [introVisible, setIntroVisible] = useState(() => {
     try {
-      return !localStorage.getItem('nd-intro-seen');
+      return !sessionStorage.getItem('nd-intro-seen');
     } catch {
       return true;
     }
@@ -108,7 +131,7 @@ export default function App() {
     if (introLeaving) return;
     setIntroLeaving(true);
     try {
-      localStorage.setItem('nd-intro-seen', '1');
+      sessionStorage.setItem('nd-intro-seen', '1');
     } catch {}
     window.setTimeout(() => setIntroVisible(false), INTRO_TRANSITION_MS);
   };
@@ -163,13 +186,39 @@ export default function App() {
           onClick={enterApp}
           aria-label="인트로를 닫고 진단 화면으로 이동"
         >
-          <IntroLogo />
-          <div className="nd-intro-wordmark">
-            옆집<span className="nd-intro-dot">.</span>컴공생
+          <div className="nd-intro-grid" aria-hidden="true"/>
+          <div className="nd-intro-aurora nd-intro-aurora--one" aria-hidden="true"/>
+          <div className="nd-intro-aurora nd-intro-aurora--two" aria-hidden="true"/>
+          <div className="nd-intro-aurora nd-intro-aurora--three" aria-hidden="true"/>
+
+          <div className="nd-intro-stack">
+            <div className="nd-intro-eyebrow">
+              <span className="nd-intro-eyebrow-dot" aria-hidden="true"/>
+              NEXTDOOR · CS DIAGNOSTIC
+            </div>
+            <IntroLogo />
+            <div className="nd-intro-wordmark" aria-label="옆집. 컴공생">
+              <span className="nd-intro-wordmark-line">
+                <IntroLetters text="옆집" baseDelay={420}/>
+                <span
+                  className="nd-intro-char nd-intro-dot"
+                  style={{ animationDelay: `${420 + 2 * 55}ms` }}
+                >
+                  .
+                </span>
+                <span className="nd-intro-char nd-intro-space" style={{ animationDelay: `${420 + 3 * 55}ms` }}> </span>
+                <IntroLetters text="컴공생" baseDelay={420 + 4 * 55}/>
+              </span>
+              <span className="nd-intro-wordmark-sheen" aria-hidden="true"/>
+            </div>
+            <p className="nd-intro-tagline">수리기사 부르기 전, 옆집 컴공생이 먼저 봅니다</p>
+            <div className="nd-intro-progress"><span /></div>
+            <div className="nd-intro-cta">
+              <span className="nd-intro-cta-glow" aria-hidden="true"/>
+              <span>탭하여 시작하기</span>
+              <span aria-hidden="true">→</span>
+            </div>
           </div>
-          <p className="nd-intro-tagline">PC 문제를 바로 읽는 AI 진단</p>
-          <div className="nd-intro-progress"><span /></div>
-          <div className="nd-intro-cta">탭하여 시작하기 →</div>
         </button>
       )}
 

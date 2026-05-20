@@ -151,7 +151,7 @@ nextdoor-cs/
 | **6** ⭐ | PWA | PWA 셋업 + 독립 모드 + 오프라인 폴백 | `manifest.json`, `sw.js`, `CameraView.tsx` |
 | **7** ⭐ | PWA | OpenCV 오버레이 + 영상 분석 + 촬영 가이드 | `useOpenCV.ts`, `VideoAnalysis.tsx`, `ShootingGuide.tsx` |
 | **7-B** ⭐⭐ | PWA | 라이브 카메라 가이드 모드 + **모듈 1/2/3 통합** | `LiveGuideMode.tsx`, `biosPipeline.ts`, `useLiveFrameCapture.ts`, `useGeminiLiveGuide.ts`, `GuideController.java` |
-| **8** | PWA | BIOS 자동 감지 + 오디오 진단 (+모듈 4 선택) | `BiosTypeSelector.tsx`, `AudioCapture.tsx` |
+| **8** | PWA | BIOS 자동 감지 + 오디오 통합 캡처 (모듈 3 거부 시 audio-only 폴백) | `useDiagnosticClipCapture.ts`, `LiveGuideMode.tsx` |
 | **9** 🔽 | 공통 | (CV 무관 — Future Work) MCP 매뉴얼 툴 연동 | `ManualToolProvider.java`, `RepairAgent.java` |
 | **10** 🔽 | 공통 | (CV 무관 — Future Work) DB 이력 + 지식베이스 + 사후 확인 | `DiagnosisHistory.java`, `SolutionKnowledge.java`, `usePostDiagnosis.ts` |
 | **11** 🔽 | 공통 | (CV 무관 — Future Work) 크로스 플랫폼 세션 (QR·연장·수동 입력·인증) | `SessionController.java`, `QRDisplay.tsx`, `SessionManager.tsx` |
@@ -175,7 +175,7 @@ nextdoor-cs/
 | **6** ⭐ | ✅ 완료 — manifest.json·sw.js·PwaPage.tsx·mobile.css·App.tsx 연결 완비 |
 | **7** ⭐ | ✅ 완료 — useOpenCV.ts·ShootingGuide.tsx·CameraView 통합(LiveGuideMode 내부) 완성 |
 | **7-B** ⭐⭐ | ✅ MVP 완료 — LiveGuideMode.tsx·useGeminiLiveGuide.ts·useLiveFrameCapture.ts·모듈1/2/3 통합 완료. Python 노트북 01~03 synthetic sanity ablation 실행 및 BEST_PARAMS/품질 임계값 반영. 실제 촬영 데이터 기반 재튜닝은 제출 전 권장 |
-| **8** | ✅ 완료 — BiosTypeSelector.tsx·AudioCapture.tsx·PwaPage 통합. MediaRecorder iOS mp4 폴백·AEC 비활성화 적용. 모듈 4(비프음 스펙트로그램) Future Work |
+| **8** | ✅ 완료 — AudioCapture 단독 진입점 제거, 장지누름 클립(`useDiagnosticClipCapture`)에 오디오 분석 흡수. 모듈 3 quality gate가 모든 프레임 거부하면 `captureMode='audio-only'` 폴백 + 사용자 피드백. BIOS 자동 vendor 감지(`applyDetectedVendor`) 유지. `AudioCapture.tsx`/`BiosTypeSelector.tsx`는 orphan — 후속 정리 대상. 모듈 4(비프음 스펙트로그램) Future Work |
 | **9** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
 | **10** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
 | **11** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |

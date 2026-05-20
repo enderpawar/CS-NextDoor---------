@@ -12,12 +12,16 @@ const MIN_CLIP_SAMPLES = 3;
 
 export const DIAGNOSTIC_CLIP_LONG_PRESS_MS = 650;
 
+export type DiagnosticClipMode = 'visual' | 'audio-only' | 'hybrid';
+
 export interface DiagnosticClipResult {
   frameBase64: string;
   width: number;
   height: number;
   cvSummary: string;
   ocrRegions?: GuideOcrRegion[];
+  captureMode: DiagnosticClipMode;
+  qualityFeedback?: string;
 }
 
 interface DiagnosticClipFrame {
@@ -104,7 +108,7 @@ export function buildDiagnosticClipSummary(args: {
   const beepOrNoiseLikely = args.audioAvailable && (audioPeakCount >= 2 || audioRmsMean >= 0.08);
 
   return makeSummary({
-    captureMode: 'clip',
+    captureSource: 'clip',
     clipDurationMs: Math.round(args.durationMs),
     sampledFrames: args.sampledFrames,
     selectedFrames: args.selectedFrames,
@@ -218,11 +222,47 @@ function selectDiagnosticFrames(frames: DiagnosticClipFrame[]) {
   for (const candidate of byQuality.slice(0, 3)) selected.set(candidate.frame.id, candidate);
   for (const candidate of byChange.slice(0, 3)) selected.set(candidate.frame.id, candidate);
 
+  const usableCount = candidates.filter(candidate => candidate.metrics.isUsable).length;
+
   return {
     candidates,
     selected: Array.from(selected.values()).slice(0, 5),
     representative: byQuality[0] ?? candidates[0],
+    usableCount,
   };
+}
+
+export interface AudioFingerprint {
+  peakCount: number;
+  rmsMean: number;
+  beepOrNoiseLikely: boolean;
+}
+
+function summarizeAudio(samples: AudioSample[], available: boolean): AudioFingerprint {
+  if (!available || samples.length === 0) {
+    return { peakCount: 0, rmsMean: 0, beepOrNoiseLikely: false };
+  }
+  const rmsValues = samples.map(sample => sample.rms);
+  const rmsMean = rmsValues.reduce((sum, value) => sum + value, 0) / rmsValues.length;
+  const peakThreshold = Math.max(0.12, rmsMean * 1.8);
+  const peakCount = samples.filter(sample => sample.peak >= peakThreshold).length;
+  return { peakCount, rmsMean, beepOrNoiseLikely: peakCount >= 2 || rmsMean >= 0.08 };
+}
+
+export function classifyDiagnosticClipMode(
+  usableCount: number,
+  audio: AudioFingerprint,
+): { mode: DiagnosticClipMode; feedback?: string } {
+  if (usableCount === 0 && audio.beepOrNoiseLikely) {
+    return {
+      mode: 'audio-only',
+      feedback: '화면이 잘 안 보여서 소리 위주로 분석할게요.',
+    };
+  }
+  if (usableCount > 0 && audio.beepOrNoiseLikely) {
+    return { mode: 'hybrid' };
+  }
+  return { mode: 'visual' };
 }
 
 declare global {
@@ -303,7 +343,7 @@ export function useDiagnosticClipCapture({
 
     if (!hasEnoughDiagnosticClipSamples(frames.length)) return null;
 
-    const { candidates, selected, representative } = selectDiagnosticFrames(frames);
+    const { candidates, selected, representative, usableCount } = selectDiagnosticFrames(frames);
     if (!representative?.jpegBase64) return null;
 
     const brightnessValues = candidates.map(candidate => candidate.metrics.brightnessMean);
@@ -316,18 +356,29 @@ export function useDiagnosticClipCapture({
       })
       .map(clamp01);
 
+    const audioAvailable = !!audioState?.available;
+    const audioFingerprint = summarizeAudio(audioSamples, audioAvailable);
+    const { mode: captureMode, feedback: qualityFeedback } = classifyDiagnosticClipMode(usableCount, audioFingerprint);
+
     let cvSummary = buildDiagnosticClipSummary({
       durationMs,
       sampledFrames: frames.length,
       selectedFrames: selected.length,
       brightnessValues,
       sceneChangeScores,
-      audioAvailable: !!audioState?.available,
+      audioAvailable,
       audioSamples,
     });
 
+    cvSummary = [
+      cvSummary,
+      `usableFrames=${usableCount}`,
+      `analysisMode=${captureMode}`,
+    ].join(', ');
+
+    // audio-only 모드는 BIOS 화면 OCR이 의미 없음 (프레임 모두 품질 미달) — 비용 절약을 위해 스킵
     let ocrRegions: GuideOcrRegion[] | undefined;
-    if (cvReady && !isHwRepairContext(context)) {
+    if (cvReady && !isHwRepairContext(context) && captureMode !== 'audio-only') {
       try {
         const ocrResult = await runBiosPipeline(new ImageData(
           new Uint8ClampedArray(representative.frame.data),
@@ -351,6 +402,8 @@ export function useDiagnosticClipCapture({
       height: representative.frame.height,
       cvSummary,
       ocrRegions,
+      captureMode,
+      qualityFeedback,
     };
   }, [context, cvReady, stopTimers]);
 

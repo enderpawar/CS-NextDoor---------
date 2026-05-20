@@ -129,7 +129,7 @@ public class LiveGuideService {
         String cvText = (cvSummary == null || cvSummary.isBlank())
             ? ""
             : "\n\nOpenCV 전처리 요약:\n" + cvSummary;
-        if (cvSummary != null && (cvSummary.contains("captureMode=clip") || cvSummary.contains("captureMode=galleryVideo"))) {
+        if (cvSummary != null && (cvSummary.contains("captureSource=clip") || cvSummary.contains("captureSource=galleryVideo"))) {
             cvText = "\n\n짧은 영상 분석 요약(원본 영상/오디오는 업로드되지 않았고, 대표 프레임 1장과 클라이언트가 추출한 깜빡임·장면 변화·소리 특징만 전달됨):\n" + cvSummary;
         }
 

@@ -34,8 +34,6 @@ import GoalInputSheet                        from './GoalInputSheet';
 import GuideBubble                           from './GuideBubble';
 import ShootingGuide                         from './ShootingGuide';
 import CvInsightPanel                        from './CvInsightPanel';
-import BiosTypeSelector                      from './BiosTypeSelector';
-import AudioCapture                          from './AudioCapture';
 import type { GuideArTarget, GuideContext, BiosType, GuideOcrRegion, CvFrameInput } from '../../types';
 import { isHwRepairContext } from '../../types';
 import { compareHist }                       from '../../lib/cv/changeDetection';
@@ -103,6 +101,8 @@ interface DrawnVideoFrame {
 interface Props {
   initialContext?: GuideContext;
   initialQuestion?: string;
+  initialInputMode?: 'camera' | 'gallery';
+  initialGalleryFiles?: File[];
   onExit?: () => void;
 }
 
@@ -302,7 +302,7 @@ async function analyzeGalleryVideo(file: File): Promise<GalleryVideoAnalysis> {
         sceneChangeScores,
         audioAvailable: false,
         audioSamples: [],
-      }).replace('captureMode=clip', 'captureMode=galleryVideo'),
+      }).replace('captureSource=clip', 'captureSource=galleryVideo'),
       `videoDurationMs=${Math.round(video.duration * 1000)}`,
       `videoSampleFps=${GALLERY_VIDEO_SAMPLE_FPS}`,
       `selectedFrameAtMs=${Math.round(repTimeSec * 1000)}`,
@@ -517,10 +517,10 @@ function getTargetLabelPosition(
   return { x, y };
 }
 
-export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuestion = '', onExit }: Props) {
+export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuestion = '', initialInputMode = 'camera', initialGalleryFiles = [], onExit }: Props) {
   const [page,              setPage]             = useState<PageState>('camera');
   const [context,           setContext]          = useState<GuideContext>(initialContext);
-  const [showShootingGuide, setShowShootingGuide] = useState(true);
+  const [showShootingGuide, setShowShootingGuide] = useState(initialInputMode === 'camera');
   const [contextSheetOpen,  setContextSheetOpen] = useState(false);
   const [goalSheetOpen,     setGoalSheetOpen]    = useState(false);
   const [taskGoal,          setTaskGoalState]    = useState(initialQuestion.trim());
@@ -528,6 +528,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const [streamError,       setStreamError]      = useState('');
   const [resolutionStep,    setResolutionStep]   = useState<'idle' | 'action-done' | 'hidden'>('hidden');
   const [questionDraft,     setQuestionDraft]    = useState(initialQuestion);
+  const [reportDraft,       setReportDraft]      = useState('');
   const [exitConfirmOpen,   setExitConfirmOpen]  = useState(false);
   const [hwSafetyAck,       setHwSafetyAck]      = useState(false);  // HW 조치 안전 모달 1회 동의
   const [hwSafetyModalOpen, setHwSafetyModalOpen] = useState(false);
@@ -544,9 +545,8 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const [biosInsight,   setBiosInsight]   = useState<{ rectified: boolean; textRegions: number; processMs: number } | null>(null);
 
   // Thumb-zone 액션 바 상태 (Task 5)
-  const [audioSheetOpen, setAudioSheetOpen] = useState(false);
   const [biosType,       setBiosType]       = useState<BiosType | null>(null);
-  const [biosTypeSource, setBiosTypeSource] = useState<'auto' | 'manual' | null>(null);
+  const [biosTypeSource, setBiosTypeSource] = useState<'auto' | null>(null);
   const [clipCaptureState, setClipCaptureState] = useState<'idle' | 'arming' | 'recording' | 'analyzing'>('idle');
 
   // Task 6 — 자동 vendor 감지 (Gemini 응답 텍스트 파싱)
@@ -563,6 +563,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const videoRef              = useRef<HTMLVideoElement>(null);
   const canvasRef             = useRef<HTMLCanvasElement>(null);
   const fileInputRef          = useRef<HTMLInputElement>(null);
+  const initialGalleryFilesHandledRef = useRef(false);
   const isSwitchingContextRef = useRef(false);
   const cameraStartingRef     = useRef(false);
   const smoothedCornersRef    = useRef<number[][] | null>(null);
@@ -588,15 +589,23 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   }, []);
 
   const lastActionResultRef = useRef<ActionResult>('none');
-  const pendingGalleryFrameRef = useRef<{
+  const pendingGalleryFramesRef = useRef<{
     base64: string;
     cvSummary: string;
     ocrRegions: GuideOcrRegion[];
     userQuestion?: string;
     taskGoal?: string;
-  } | null>(null);
+    displayFrame: FrozenFrame;
+    overlay: {
+      corners: number[][] | null;
+      textRegions: BiosTextRegion[];
+      videoSize: { w: number; h: number };
+      biosInsight: { rectified: boolean; textRegions: number; processMs: number } | null;
+    };
+  }[]>([]);
   // 갤러리 업로드 중복 실행 가드 — 동영상 분석이 수초 걸리는 동안 두 번째 파일 선택 차단
   const galleryProcessingRef = useRef(false);
+  const gallerySessionStartRequestedRef = useRef(false);
   const [galleryProcessing, setGalleryProcessing] = useState(false);
 
   const { cvReady } = useOpenCV();
@@ -664,21 +673,14 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     [frozenFrame],
   );
 
-  const handleBiosTypeSelect = useCallback((type: BiosType) => {
-    setBiosType(type);
-    setBiosTypeSource('manual');
-    setAutoVendorChip(null);
-    vendorDetectedRef.current = true;
-  }, []);
-
   const applyDetectedVendor = useCallback((vendor: BiosType) => {
-    if (vendorDetectedRef.current || biosTypeSource === 'manual') return;
+    if (vendorDetectedRef.current) return;
     vendorDetectedRef.current = true;
     setBiosType(vendor);
     setBiosTypeSource('auto');
     setAutoVendorChip(vendor);
     window.setTimeout(() => setAutoVendorChip(null), 4000);
-  }, [biosTypeSource]);
+  }, []);
 
   const isWaitingForActionResult =
     !!guide.streamText
@@ -707,12 +709,8 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   }, [cvPanelOpen]);
 
   // ── 갤러리 이미지/짧은 동영상 업로드 → CV 전처리 → Gemini 전송 ───────────
-  const handleGallerySelect = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      e.target.value = '';   // 동일 파일 재선택 허용
-
+  const processGalleryFile = useCallback(
+    async (file: File) => {
       // 동시 실행 가드 — 동영상 분석이 수초 걸리는 동안 두 번째 호출 차단
       if (galleryProcessingRef.current) return;
 
@@ -734,6 +732,9 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         let width = 0;
         let height = 0;
         let cvSummary = '';
+        let galleryCorners: number[][] | null = null;
+        let galleryTextRegions: BiosTextRegion[] = [];
+        let galleryBiosInsight: { rectified: boolean; textRegions: number; processMs: number } | null = null;
 
         if (isVideo) {
           try {
@@ -792,11 +793,12 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           cvSummary = '';
         }
 
-        setFrozenFrame({
+        const displayFrame = {
           dataUrl: `data:image/jpeg;base64,${base64}`,
           width,
           height,
-        });
+        };
+        setFrozenFrame(displayFrame);
 
         const initialQuestionForFrame = !guide.streamText ? initialQuestionRef.current : '';
         if (initialQuestionForFrame && !taskGoalRef.current) setTaskGoal(initialQuestionForFrame);
@@ -819,17 +821,20 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
               `biosTextRegions=${preprocessed.textRegionCount}`,
               `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
             ].join(', ');
+            galleryCorners = preprocessed.corners;
+            galleryTextRegions = preprocessed.textRegions;
+            galleryBiosInsight = {
+              rectified:   preprocessed.rectified,
+              textRegions: preprocessed.textRegionCount,
+              processMs:   Math.round(preprocessed.processingMs),
+            };
             handleBiosOverlay({
               corners: preprocessed.corners,
               textRegions: preprocessed.textRegions,
               videoW: width,
               videoH: height,
             });
-            setBiosInsight({
-              rectified:   preprocessed.rectified,
-              textRegions: preprocessed.textRegionCount,
-              processMs:   Math.round(preprocessed.processingMs),
-            });
+            setBiosInsight(galleryBiosInsight);
           } catch {
             // 전처리 실패 → 원본 이미지로 계속
           }
@@ -852,37 +857,55 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           }
         }
 
-        pendingGalleryFrameRef.current = {
+        pendingGalleryFramesRef.current.push({
           base64,
           cvSummary,
           ocrRegions: galleryOcrRegions,
           userQuestion: initialQuestionForFrame || undefined,
           taskGoal: taskGoalRef.current || initialQuestionForFrame || undefined,
-        };
+          displayFrame,
+          overlay: {
+            corners: galleryCorners,
+            textRegions: galleryTextRegions,
+            videoSize: { w: width, h: height },
+            biosInsight: galleryBiosInsight,
+          },
+        });
 
         if (guide.session?.status === 'ACTIVE') {
           // 이미 세션 활성 → 즉시 전송
-          pendingGalleryFrameRef.current = null;
+          const pending = pendingGalleryFramesRef.current.shift();
+          if (!pending) return;
+          setFrozenFrame(pending.displayFrame);
+          setBiosCorners(pending.overlay.corners);
+          setBiosTextRegions(pending.overlay.textRegions);
+          setBiosVideoSize(pending.overlay.videoSize);
+          setBiosInsight(pending.overlay.biosInsight);
+          setBiosOcrRegions(pending.ocrRegions);
           try {
             await guide.sendFrame(
-              base64,
+              pending.base64,
               null,
-              cvSummary,
-              galleryOcrRegions,
-              initialQuestionForFrame || undefined,
-              taskGoalRef.current || initialQuestionForFrame || undefined,
+              pending.cvSummary,
+              pending.ocrRegions,
+              pending.userQuestion,
+              pending.taskGoal,
             );
-            if (initialQuestionForFrame) initialQuestionRef.current = '';
+            if (pending.userQuestion) initialQuestionRef.current = '';
             lastActionResultRef.current = 'none';
           } catch { /* 내부 처리 */ }
         } else {
           // 세션 없음 → ShootingGuide 닫고 자동 시작 (완료 후 pendingGalleryFrameRef useEffect가 전송)
           setShowShootingGuide(false);
-          try {
-            await guide.startSession(context);
-          } catch {
-            setStreamError('가이드 세션을 시작할 수 없어요.');
-            pendingGalleryFrameRef.current = null;
+          if (!gallerySessionStartRequestedRef.current) {
+            gallerySessionStartRequestedRef.current = true;
+            try {
+              await guide.startSession(context);
+            } catch {
+              gallerySessionStartRequestedRef.current = false;
+              setStreamError('가이드 세션을 시작할 수 없어요.');
+              pendingGalleryFramesRef.current = [];
+            }
           }
         }
       } finally {
@@ -892,6 +915,31 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       }
     },
     [cvReady, guide, context, handleBiosOverlay, applyDetectedVendor, setTaskGoal],
+  );
+
+  const processGalleryFiles = useCallback(
+    async (files: File[]) => {
+      const validFiles = files.filter(file => isLikelyImageFile(file) || isLikelyVideoFile(file));
+      if (!validFiles.length) {
+        setStreamError('사진이나 15초 이하의 동영상만 선택할 수 있어요.');
+        return;
+      }
+
+      setQualityText(validFiles.length > 1 ? `${validFiles.length}개 파일을 순서대로 분석할게요.` : '');
+      for (const file of validFiles) {
+        await processGalleryFile(file);
+      }
+    },
+    [processGalleryFile],
+  );
+
+  const handleGallerySelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = '';   // 동일 파일 재선택 허용
+      if (files.length) void processGalleryFiles(files);
+    },
+    [processGalleryFiles],
   );
 
   // ── 수동 프레임 캡처 ("다음 단계" 버튼) ──────────────────────────────────
@@ -1002,11 +1050,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           `ocrRegions=${ocrRegions.length}`,
           `ocrConfidence=${ocrResult.confidence.toFixed(2)}`,
         ].join(', ');
-        if (
-          ocrResult.detectedVendor
-          && biosTypeSource !== 'manual'
-          && !vendorDetectedRef.current
-        ) {
+        if (ocrResult.detectedVendor && !vendorDetectedRef.current) {
           applyDetectedVendor(ocrResult.detectedVendor);
         }
       } catch (err) {
@@ -1028,7 +1072,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     canvasRef,
     videoRef,
     cvReady,
-    biosTypeSource,
     applyDetectedVendor,
     handleBiosOverlay,
     resolutionStep,
@@ -1088,7 +1131,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       );
       if (shouldUseInitialQuestion) initialQuestionRef.current = '';
       lastActionResultRef.current = 'none';
-      setQualityText('');
+      setQualityText(result.qualityFeedback ?? '');
     } catch {
       // sendFrame 내부에서 처리됨
     } finally {
@@ -1189,6 +1232,14 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setQualityText(current => (current === lastFeedback ? '' : current));
   }, [clipCaptureState, guide.captureState]);
 
+  const cvProcessingPaused =
+    showShootingGuide
+    || goalSheetOpen
+    || contextSheetOpen
+    || hwSafetyModalOpen
+    || exitConfirmOpen
+    || page !== 'camera';
+
   const { currentHistRef } = useLiveFrameCapture({
     canvasRef,
     videoRef,
@@ -1199,9 +1250,10 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     onMetricsUpdate:  handleMetricsUpdate,
     onBiosOverlay:    handleBiosOverlay,
     onBiosVendorDetected: applyDetectedVendor,
-    enableBiosVendorOcr:  !isHwRepairContext(context) && biosTypeSource !== 'manual' && !vendorDetectedRef.current,
+    enableBiosVendorOcr:  !isHwRepairContext(context) && !vendorDetectedRef.current,
     enableBiosPreprocess: !isHwRepairContext(context),
     enableAutoFrameSend:  false,
+    paused:               cvProcessingPaused,
   });
 
   // ── stale guide 감지: isStreaming false 전환 시 ────────────────────────────
@@ -1240,27 +1292,41 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   // ── Task 6: 자동 vendor 감지 — isStreaming false 전환마다 streamText 파싱 ──
   useEffect(() => {
     if (guide.isStreaming) return;
-    if (!guide.streamText || vendorDetectedRef.current || biosTypeSource === 'manual') return;
+    if (!guide.streamText || vendorDetectedRef.current) return;
     const vendor = detectBiosVendor(guide.streamText);
     if (!vendor) return;
     applyDetectedVendor(vendor);
-  }, [guide.isStreaming, guide.streamText, biosTypeSource, applyDetectedVendor]);
+  }, [guide.isStreaming, guide.streamText, applyDetectedVendor]);
 
   // ── 갤러리 pending 프레임 — 세션 ACTIVE 전환 시 자동 전송 ──────────────────
   useEffect(() => {
     if (guide.session?.status !== 'ACTIVE') return;
-    const pending = pendingGalleryFrameRef.current;
-    if (!pending) return;
-    pendingGalleryFrameRef.current = null;
-    guide
-      .sendFrame(pending.base64, null, pending.cvSummary, pending.ocrRegions, pending.userQuestion, pending.taskGoal)
-      .then(() => {
+    if (!pendingGalleryFramesRef.current.length) return;
+
+    let cancelled = false;
+    const sendPendingFrames = async () => {
+      while (!cancelled && pendingGalleryFramesRef.current.length > 0) {
+        const pending = pendingGalleryFramesRef.current.shift();
+        if (!pending) return;
+        setFrozenFrame(pending.displayFrame);
+        setBiosCorners(pending.overlay.corners);
+        setBiosTextRegions(pending.overlay.textRegions);
+        setBiosVideoSize(pending.overlay.videoSize);
+        setBiosInsight(pending.overlay.biosInsight);
+        setBiosOcrRegions(pending.ocrRegions);
+        await guide.sendFrame(pending.base64, null, pending.cvSummary, pending.ocrRegions, pending.userQuestion, pending.taskGoal);
         if (pending.userQuestion && initialQuestionRef.current === pending.userQuestion) {
           initialQuestionRef.current = '';
         }
+        if (guide.isSendingRef.current) return;
         lastActionResultRef.current = 'none';
-      })
-      .catch(() => {});
+      }
+    };
+
+    void sendPendingFrames().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [guide.session?.status, guide]);
 
   // 컨텍스트 변경 시 vendor 감지 + AR 오버레이 + HW 안전 동의 상태 초기화
@@ -1324,21 +1390,56 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
 
   // ── 앱 진입 즉시 카메라 시작 + 언마운트 정리 ──────────────────────────────
   useEffect(() => {
+    if (initialInputMode === 'gallery') return;
     startCamera();
     return () => {
       stopCamera();
       capturedHistRef.current?.delete();
       capturedHistRef.current = null;
     };
-  }, [startCamera, stopCamera]);
+  }, [initialInputMode, startCamera, stopCamera]);
+
+  useEffect(() => {
+    return () => {
+      capturedHistRef.current?.delete();
+      capturedHistRef.current = null;
+    };
+  }, []);
 
   // ── 마운트 시 목표가 비어 있으면 목표 시트 자동 오픈 ─────────────────────
   // (Camera-First 흐름: 카메라/촬영 가이드 위에 시트가 모달로 떠 사용자 목표 수집)
   useEffect(() => {
+    if (initialInputMode === 'gallery') return;
     if (!taskGoalRef.current) setGoalSheetOpen(true);
     // 마운트 시 1회만
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (initialInputMode !== 'gallery') return;
+    if (initialGalleryFiles.length > 0) return;
+    if (guide.session) return;
+
+    setShowShootingGuide(false);
+    setGoalSheetOpen(false);
+    setStreamError('');
+    setQualityText('저장된 사진이나 15초 이하 동영상을 선택해주세요.');
+    guide.startSession(context).catch(() => {
+      setStreamError('가이드 세션을 시작할 수 없어요. 잠시 후 다시 시도해주세요.');
+    });
+    // 갤러리 진입 시 세션 1회 자동 시작
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialInputMode, initialGalleryFiles.length]);
+
+  useEffect(() => {
+    if (initialInputMode !== 'gallery') return;
+    if (!initialGalleryFiles.length || initialGalleryFilesHandledRef.current) return;
+
+    initialGalleryFilesHandledRef.current = true;
+    setShowShootingGuide(false);
+    setGoalSheetOpen(false);
+    void processGalleryFiles(initialGalleryFiles);
+  }, [initialInputMode, initialGalleryFiles, processGalleryFiles]);
 
   // ── 목표 시트 핸들러 (확정/시트 열기는 의존성 없음, skip은 handleAutoDiagnosisClick에 의존) ──
   const handleGoalConfirm = useCallback((goal: string) => {
@@ -1399,6 +1500,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setContext(ctx);
     setContextSheetOpen(false);
     setQuestionDraft('');
+    setReportDraft('');
     clearFrozenGuideState();
     setTaskGoal('');
     lastActionResultRef.current = 'none';
@@ -1422,6 +1524,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
 
     setContext('GENERAL');
     setQuestionDraft('');
+    setReportDraft('');
     setQualityText('');
     setStreamError('');
     clearFrozenGuideState();
@@ -1458,6 +1561,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setQualityText('');
     setStreamError('');
     setQuestionDraft('');
+    setReportDraft('');
     clearFrozenGuideState();
     lastActionResultRef.current = 'none';
     capturedHistRef.current?.delete();
@@ -1503,6 +1607,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setPage('done');
     setResolutionStep('hidden');
     setQuestionDraft('');
+    setReportDraft('');
     clearFrozenGuideState();
     lastActionResultRef.current = 'none';
   }, [guide, stopCamera, clearFrozenGuideState]);
@@ -1528,6 +1633,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setQualityText('');
     setStreamError('');
     setQuestionDraft('');
+    setReportDraft('');
     clearFrozenGuideState();
     setTaskGoal(initialQuestion.trim());
     lastActionResultRef.current = 'none';
@@ -1590,7 +1696,11 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   }
 
   // ── 카메라 화면 ─────────────────────────────────────────────────────────
-  const displayText = guide.streamText || STATIC_FIRST_GUIDE[context];
+  const displayText = guide.streamText || (
+    initialInputMode === 'gallery'
+      ? '저장된 PC 화면 사진이나 짧은 영상을 선택해주세요. 오류 문구, BIOS 화면, 검은 화면 단서를 사진 기준으로 먼저 분석할게요.'
+      : STATIC_FIRST_GUIDE[context]
+  );
   const selectedOcrTarget = guide.arTarget
     ? biosOcrRegions.find(region => region.id === guide.arTarget?.targetId) ?? null
     : null;
@@ -1610,7 +1720,8 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const fallbackOcrTarget = !selectedOcrTarget && !arHintMatchedTarget && !guide.isStreaming
     ? pickFallbackOcrTarget(biosOcrRegions, guide.streamText, taskGoal, context)
     : null;
-  const fallbackTextRegionTarget = !selectedOcrTarget && !arHintMatchedTarget && !fallbackOcrTarget && !guide.isStreaming && guide.streamText
+  const canUseRawCvFallbackTarget = context === 'BIOS_BOOT' && initialInputMode !== 'gallery';
+  const fallbackTextRegionTarget = canUseRawCvFallbackTarget && !selectedOcrTarget && !arHintMatchedTarget && !fallbackOcrTarget && !guide.isStreaming && guide.streamText
     ? textRegionToArTarget(biosTextRegions[0])
     : null;
   const rawActiveOcrTarget = visionBboxTarget ?? selectedOcrTarget ?? arHintMatchedTarget ?? fallbackOcrTarget ?? fallbackTextRegionTarget;
@@ -1625,6 +1736,21 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       : arHintMatchedTarget || fallbackOcrTarget
         ? '여기를 누르세요'
         : '이 후보를 확인';
+  const resolutionCheckQuestion = isActionMode
+    ? '해당 내용을 조치하셨나요?'
+    : activeOcrTarget
+      ? '표시된 곳을 눌렀나요?'
+      : '안내한 조치를 해보셨나요?';
+  const resolutionTriedLabel = isActionMode
+    ? '조치했어요'
+    : activeOcrTarget
+      ? '눌렀어요'
+      : '해봤어요';
+  const resolutionUnresolvedLabel = isActionMode
+    ? '아직이에요'
+    : activeOcrTarget
+      ? '못 찾겠어요'
+      : '아직이에요';
   const activeTargetLabelWidth = Math.max(118, activeOcrTarget ? Math.min(220, activeOcrTarget.bbox.w + 34) : 118);
   const activeTargetLabelPosition = activeOcrTarget && biosVideoSize
     ? getTargetLabelPosition(activeOcrTarget, biosVideoSize, activeTargetLabelWidth)
@@ -1669,8 +1795,8 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         <button
           type="button"
           className={`nd-cv-status${cvReady ? ' ready' : ''}${cvPanelOpen ? ' panel-open' : ''}`}
-          title={cvPanelOpen ? 'CV 패널 닫기' : 'CV 파이프라인 상태 보기'}
-          aria-label={cvPanelOpen ? 'CV 패널 닫기' : 'OpenCV 파이프라인 상태 보기'}
+          title={cvPanelOpen ? '화면 인식 정보 닫기' : '화면 인식 정보 보기'}
+          aria-label={cvPanelOpen ? '화면 인식 정보 닫기' : '화면 인식 정보 보기'}
           aria-pressed={cvPanelOpen}
           onClick={() => setCvPanelOpen(v => !v)}
         >
@@ -1718,7 +1844,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           aria-hidden="true"
         >
           <span className="nd-ar-guide-label">
-            {hasFrozenFrame ? 'SCREEN LOCKED' : (biosCorners ? 'SCREEN LOCKED' : 'ALIGN SCREEN')}
+            {hasFrozenFrame ? '화면 고정됨' : (biosCorners ? '화면 인식됨' : '화면을 맞춰주세요')}
           </span>
         </div>
 
@@ -1794,7 +1920,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           type="button"
           className={`nd-cv-panel-toggle${cvPanelOpen ? ' is-open' : ' is-collapsed'}${cvReady ? ' ready' : ''}`}
           onClick={() => setCvPanelOpen(v => !v)}
-          aria-label={cvPanelOpen ? 'CV 패널 접기' : 'CV 패널 펼치기'}
+          aria-label={cvPanelOpen ? '화면 인식 정보 접기' : '화면 인식 정보 펼치기'}
           aria-pressed={cvPanelOpen}
         >
           {cvPanelOpen ? (
@@ -1802,7 +1928,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           ) : (
             <>
               <span className="nd-cv-panel-toggle-dot" aria-hidden="true" />
-              <span>CV</span>
+              <span>인식</span>
             </>
           )}
         </button>
@@ -1830,6 +1956,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             elapsed={guide.elapsed}
             staleGuide={guide.staleGuide}
             compact={hasFrozenFrame || !!activeOcrTarget}
+            targeting={!!activeOcrTarget}
           />
           {guide.session?.status === 'ACTIVE' && !activeOcrTarget && (
             <form className="nd-guide-question-form" onSubmit={handleQuestionSubmit}>
@@ -1857,18 +1984,35 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             <div className="nd-resolution-check" role="group" aria-label="조치 결과 확인">
               {resolutionStep === 'idle' ? (
                 <>
-                  <span>{activeOcrTarget ? '표시된 곳을 눌렀나요?' : '안내한 조치를 해보셨나요?'}</span>
+                  <span>{resolutionCheckQuestion}</span>
                   <button type="button" onClick={handleActionTried}>
-                    {activeOcrTarget ? '눌렀어요' : '해봤어요'}
+                    {resolutionTriedLabel}
                   </button>
                   <button type="button" onClick={handleStillUnresolved}>
-                    {activeOcrTarget ? '못 찾겠어요' : '아직이에요'}
+                    {resolutionUnresolvedLabel}
                   </button>
                 </>
               ) : (
                 <>
-                  <span>다음 화면을 분석할까요?</span>
-                  <button type="button" onClick={() => handleManualCapture()} disabled={resolutionCaptureDisabled}>
+                  <span>어떻게 바뀌었는지 알려주세요 (선택)</span>
+                  <textarea
+                    className="nd-resolution-report-input"
+                    value={reportDraft}
+                    onChange={e => setReportDraft(e.target.value)}
+                    placeholder="예: F2 눌렀는데 검은 화면이 떴어요"
+                    maxLength={200}
+                    rows={2}
+                    disabled={resolutionCaptureDisabled}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const report = reportDraft.trim();
+                      setReportDraft('');
+                      void handleManualCapture(report || undefined);
+                    }}
+                    disabled={resolutionCaptureDisabled}
+                  >
                     다음 화면 분석
                   </button>
                   <button type="button" onClick={handleResolvedByUser}>
@@ -1892,53 +2036,33 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       {!showShootingGuide && (
         <>
           <div className="nd-action-bar" role="toolbar" aria-label="진단 도구">
-            {/* 보조: 비프음 진단 */}
-            <button
-              type="button"
-              className="nd-action-bar-btn"
-              onClick={() => setAudioSheetOpen(true)}
-              disabled={guide.captureState !== 'idle' || clipCaptureState !== 'idle'}
-              aria-label="비프음 진단 열기"
-            >
-              <span className="nd-action-bar-icon">🎙</span>
-              <span className="nd-action-bar-label">
-                {biosTypeSource === 'auto' && biosType ? `${biosType} 비프음` : '비프음'}
-              </span>
-            </button>
-
-            {/* 주요: 다음 단계 (수동 캡처) */}
+            {/* 주요: 다음 단계 (수동 캡처) — 중앙 */}
             <button
               type="button"
               className="nd-action-bar-btn nd-action-bar-primary nd-action-bar-capture"
-              onPointerDown={handleCapturePointerDown}
-              onPointerUp={e => void endCapturePointer(e, 'up')}
-              onPointerCancel={e => void endCapturePointer(e, 'cancel')}
+              onPointerDown={initialInputMode === 'gallery' ? undefined : handleCapturePointerDown}
+              onPointerUp={initialInputMode === 'gallery' ? undefined : e => void endCapturePointer(e, 'up')}
+              onPointerCancel={initialInputMode === 'gallery' ? undefined : e => void endCapturePointer(e, 'cancel')}
               onClick={e => {
+                if (initialInputMode === 'gallery') {
+                  fileInputRef.current?.click();
+                  return;
+                }
                 if (e.detail === 0 && clipCaptureState === 'idle' && !nextButtonDisabled) void handleManualCapture();
               }}
               disabled={nextButtonDisabled}
-              aria-label={guide.streamText ? '다음 화면 촬영 후 분석' : '현재 화면 촬영 후 분석'}
-              title="탭: 사진 · 길게: 깜빡임/소리"
+              aria-label={initialInputMode === 'gallery' ? '갤러리 사진 또는 동영상 선택' : guide.streamText ? '다음 화면 촬영 후 분석' : '현재 화면 촬영 후 분석'}
+              title={initialInputMode === 'gallery' ? '사진/영상 선택' : '탭: 사진 · 길게: 깜빡임/소리'}
             >
-              {clipCaptureState === 'recording' && <span className="nd-capture-progress-ring" aria-hidden="true" />}
-              {clipCaptureState === 'recording'
+              {initialInputMode !== 'gallery' && clipCaptureState === 'recording' && <span className="nd-capture-progress-ring" aria-hidden="true" />}
+              {initialInputMode === 'gallery' && guide.captureState === 'idle' && clipCaptureState === 'idle'
+                ? <span className="nd-action-bar-analyzing">사진 선택</span>
+                : clipCaptureState === 'recording'
                 ? <span className="nd-action-bar-analyzing">촬영 중</span>
                 : clipCaptureState === 'analyzing' || guide.captureState !== 'idle'
                 ? <span className="nd-action-bar-analyzing">분석 중…</span>
                 : <Camera className="nd-action-bar-camera-icon" size={28} strokeWidth={2.4} aria-hidden="true" />
               }
-            </button>
-
-            {/* 보조: 갤러리 사진/동영상 업로드 */}
-            <button
-              type="button"
-              className="nd-action-bar-btn"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={guide.captureState !== 'idle' || clipCaptureState !== 'idle' || galleryProcessing}
-              aria-label="갤러리에서 사진 또는 동영상 선택"
-            >
-              <span className="nd-action-bar-icon">📁</span>
-              <span className="nd-action-bar-label">{galleryProcessing ? '분석 중…' : '갤러리'}</span>
             </button>
           </div>
           <div className="nd-capture-hint">탭: 사진 · 길게: 깜빡임/소리</div>
@@ -1950,6 +2074,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         ref={fileInputRef}
         type="file"
         accept="image/*,video/*"
+        multiple
         style={{ display: 'none' }}
         onChange={handleGallerySelect}
         aria-hidden="true"
@@ -1958,7 +2083,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       {/* ── ShootingGuide 오버레이 (카메라 위 반투명, 하단 정렬) ── */}
       {showShootingGuide && (
         <div className="nd-shooting-overlay">
-          <ShootingGuide onDismiss={handleGuideStart} />
+          <ShootingGuide onDismiss={handleGuideStart} onBack={handleEnd} />
         </div>
       )}
 
@@ -2000,38 +2125,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             <div className="nd-context-sheet-handle" aria-hidden="true" />
             <p className="nd-context-sheet-title">어떤 증상을 진단할까요?</p>
             <GuideContextSelector onSelect={handleContextChange} />
-          </div>
-        </div>
-      )}
-
-      {/* ── 비프음 진단 풀업 시트 ── */}
-      {audioSheetOpen && (
-        <div
-          className="nd-context-sheet-backdrop"
-          onClick={() => setAudioSheetOpen(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="비프음 진단"
-        >
-          <div
-            className="nd-context-sheet nd-audio-sheet"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="nd-context-sheet-handle" aria-hidden="true" />
-            <p className="nd-context-sheet-title">비프음 진단</p>
-            {biosTypeSource === 'auto' && biosType && (
-              <div className="nd-vendor-sheet-note" role="status">
-                카메라 가이드에서 {biosType} BIOS로 추정했어요.
-              </div>
-            )}
-            <BiosTypeSelector
-              selected={biosType}
-              onSelect={handleBiosTypeSelect}
-              autoDetected={biosTypeSource === 'auto' ? biosType : null}
-            />
-            <div style={{ marginTop: '0.75rem' }}>
-              <AudioCapture biosType={biosType} symptom="부팅 시 비프음 패턴 분석" />
-            </div>
           </div>
         </div>
       )}

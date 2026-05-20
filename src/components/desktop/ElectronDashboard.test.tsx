@@ -244,54 +244,35 @@ describe('ElectronDashboard — 가설 카드 인터랙션', () => {
     return utils;
   }
 
-  it('"이 조치 시도하기" 클릭 시 해봤어요/효과 없어요 버튼이 나타난다', async () => {
+  it('"이 단계 시도하기" 클릭 시 해결됐어요/효과 없어요 버튼이 나타난다', async () => {
     await setup();
-    const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
+    const tryButtons = screen.getAllByRole('button', { name: '이 단계 시도하기' });
     fireEvent.click(tryButtons[0]!);
-    expect(screen.getByRole('button', { name: '해봤어요' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '해결됐어요' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '효과 없어요' })).toBeInTheDocument();
   });
 
-  it('"해봤어요" 클릭 시 해결됐나요 분기 버튼이 나타난다', async () => {
+  it('"해결됐어요" 클릭 시 완료 pill과 해결됨 카드가 표시된다', async () => {
     await setup();
-    const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
+    const tryButtons = screen.getAllByRole('button', { name: '이 단계 시도하기' });
     fireEvent.click(tryButtons[0]!);
-    fireEvent.click(screen.getByRole('button', { name: '해봤어요' }));
-    expect(screen.getByRole('button', { name: '해결됐어요' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '아직 안 됐어요' })).toBeInTheDocument();
-  });
-
-  it('"해봤어요" → "해결됐어요" 클릭 시 완료 pill과 해결됨 카드가 표시된다', async () => {
-    await setup();
-    const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
-    fireEvent.click(tryButtons[0]!);
-    fireEvent.click(screen.getByRole('button', { name: '해봤어요' }));
     fireEvent.click(screen.getByRole('button', { name: '해결됐어요' }));
     expect(screen.getByText('완료')).toBeInTheDocument();
     expect(screen.getByText('문제가 해결됐군요!')).toBeInTheDocument();
   });
 
-  it('"해봤어요" → "아직 안 됐어요" 클릭 시 추가 점검 필요 pill이 표시된다', async () => {
+  it('"효과 없어요" 클릭 시 다음 단계로 이동 pill이 표시된다', async () => {
     await setup();
-    const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
-    fireEvent.click(tryButtons[0]!);
-    fireEvent.click(screen.getByRole('button', { name: '해봤어요' }));
-    fireEvent.click(screen.getByRole('button', { name: '아직 안 됐어요' }));
-    expect(screen.getByText('추가 점검 필요')).toBeInTheDocument();
-  });
-
-  it('"효과 없어요" 클릭 시 추가 점검 필요 pill이 표시된다', async () => {
-    await setup();
-    const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
+    const tryButtons = screen.getAllByRole('button', { name: '이 단계 시도하기' });
     fireEvent.click(tryButtons[0]!);
     fireEvent.click(screen.getByRole('button', { name: '효과 없어요' }));
-    expect(screen.getByText('추가 점검 필요')).toBeInTheDocument();
+    expect(screen.getByText('다음 단계로 이동')).toBeInTheDocument();
   });
 
   it('모든 가설 소진 시 재현 모드 시작하기 버튼이 나타난다', async () => {
     await setup();
 
-    const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
+    const tryButtons = screen.getAllByRole('button', { name: '이 단계 시도하기' });
     for (const btn of tryButtons) {
       fireEvent.click(btn);
       fireEvent.click(screen.getByRole('button', { name: '효과 없어요' }));
@@ -305,7 +286,7 @@ describe('ElectronDashboard — 가설 카드 인터랙션', () => {
   it('모든 가설 소진 시 현재 3/3 단계로 업데이트된다', async () => {
     await setup();
 
-    const tryButtons = screen.getAllByRole('button', { name: '이 조치 시도하기' });
+    const tryButtons = screen.getAllByRole('button', { name: '이 단계 시도하기' });
     for (const btn of tryButtons) {
       fireEvent.click(btn);
       fireEvent.click(screen.getByRole('button', { name: '효과 없어요' }));
