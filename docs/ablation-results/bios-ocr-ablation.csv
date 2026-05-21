@@ -1,0 +1,6 @@
+﻿전처리 조합,전체 KW-Recall,Good(Q통과) KW-Recall,Bad(Q거부) KW-Recall
+① Raw,0.267,0.197,0.306
+② CLAHE,0.238,0.174,0.274
+③ Adaptive Thresh,0.111,0.099,0.118
+④ CLAHE + Adaptive,0.09,0.049,0.113
+⑤ CLAHE + Otsu,0.203,0.138,0.241

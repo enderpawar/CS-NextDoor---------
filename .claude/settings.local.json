@@ -21,7 +21,8 @@
       "Bash(python *)",
       "Bash(powershell.exe -Command \"& 'C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe' -m pip install numpy pandas matplotlib seaborn --quiet\")",
       "Bash(Select-String -Pattern \"\\(Successfully|already|error|Error\\)\")",
-      "Bash(Select-Object -Last 10)"
+      "Bash(Select-Object -Last 10)",
+      "Bash(powershell.exe *)"
     ]
   }
 }

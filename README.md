@@ -338,6 +338,26 @@ OpenCV 적용 전후를 비교하면 다음과 같습니다.
 
 상세 데이터: [`bios-ablation.csv`](docs/ablation-results/bios-ablation.csv) · 재실행: `python notebooks/regenerate_real_bios_charts.py`
 
+#### OCR 키워드 Recall Ablation (Tesseract 5.4, 실촬영 22장)
+
+품질 게이트 통과 8장을 대상으로 전처리 조합별 BIOS 키워드 포함 비율을 측정했습니다. 입력 이미지가 Chrome 브라우저에서 MSI BIOS 사진을 열어 촬영한 스크린샷이므로, GUI BIOS(MSI Click BIOS 5)에서 Tesseract가 갖는 구조적 한계가 수치로 드러납니다.
+
+![BIOS OCR Ablation](docs/ablation-results/bios-ocr-ablation.png)
+
+![BIOS Angle Accuracy](docs/ablation-results/bios-angle-accuracy.png)
+
+| 전처리 조합 | 전체 KW-Recall | 품질통과(8장) | 품질거부(14장) |
+|---|---:|---:|---:|
+| ① Raw (없음) | 26.7% | **19.7%** | 30.6% |
+| ② CLAHE만 | 23.8% | 17.4% | 27.4% |
+| ③ Adaptive Threshold만 | 11.1% | 9.9% | 11.8% |
+| ④ CLAHE + Adaptive | 9.0% | 4.9% | 11.3% |
+| ⑤ CLAHE + Otsu | 20.3% | 13.8% | 24.1% |
+
+> **핵심 발견**: GUI BIOS(MSI Click BIOS 5)에서 Adaptive Threshold 전처리는 오히려 키워드 Recall을 감소시킵니다(-14.8%p). 이는 그래픽 기반 BIOS UI가 문서 OCR 전제의 Tesseract에 적합하지 않음을 정량으로 보여주며, 텍스트 이해를 Gemini Vision에 위임한 아키텍처 결정의 근거가 됩니다.  
+> Tesseract는 텍스트 모드 BIOS(AMI/Award/Phoenix POST 화면) 벤더 식별에 한정하여 사용합니다.  
+> 재실행: `python notebooks/run_ocr_evaluation.py`
+
 #### Real-Capture BIOS Evaluation
 
 MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄운 뒤, 스마트폰으로 22장의 이미지를 촬영했습니다. 스크린샷 대신 실제 촬영 이미지를 사용한 이유는 카메라 기반 진단에서 자주 생기는 반사, 초점 흐림, 화면 외 영역, 부분 crop이 전처리 성능에 직접 영향을 주기 때문입니다.
@@ -386,7 +406,12 @@ MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄
 | ROI/corner 후보 검출 | 14/22 (**63.6%**) | strict quad 0건, fallback ROI 14건 |
 | 평균 Hough line 후보 | **740.2개** | 범위 42~3946 |
 | 평균 텍스트/에지 ROI 후보 | **425.1개** | 범위 186~869, OCR 전 후보 영역 |
-| OCR 정량 | 미측정 | 로컬 Tesseract/pytesseract 설치 후 재측정 |
+| OCR 키워드 Recall (Tesseract 5.4, PSM11) | **19.7%** (품질통과 8장) | 브라우저 스크린샷 특성상 GUI 혼재 |
+| CLAHE 전처리 후 OCR Recall | **17.4%** (품질통과 8장) | Adaptive Threshold: 4.9% (GUI에 역효과) |
+| OCR 아키텍처 결론 | **Gemini Vision 위임** | GUI BIOS에 Tesseract 한계 정량 확인 → 설계 정당성 증명 |
+
+> **중요 발견**: MSI Click BIOS 5(GUI 타입)는 Tesseract OCR로 키워드 Recall 20% 미만. CLAHE + Adaptive Threshold이 오히려 GUI 구조를 파괴해 Recall 감소(-14.8%p). 이는 프로젝트가 텍스트 이해를 Gemini Vision에 위임한 아키텍처 결정의 정량적 근거가 됩니다.  
+> Tesseract는 텍스트 모드 BIOS(AMI/Award/Phoenix POST 화면) 벤더 식별에 한정 사용.
 
 실촬영 입력은 OCR에 바로 넣기에는 품질 편차가 큽니다. 그래서 이 파이프라인은 먼저 Laplacian variance와 밝기 통계로 프레임을 걸러내고, 통과한 프레임에 대해서만 BIOS 영역 검출과 후속 OCR 단계를 수행하도록 구성했습니다.
 
@@ -576,7 +601,8 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 
 | 모듈 | 핵심 지표 | 결과 |
 |---|---|---|
-| 모듈 1 — BIOS 파이프라인 | OCR 정확도 (Levenshtein ≥ 0.8 비율) | 로컬 Tesseract 설치 후 재측정 |
+| 모듈 1 — BIOS 파이프라인 | BIOS 키워드 Recall (Raw OCR, 품질통과 8장) | **19.7%** → CLAHE 단독 17.4% → 한계 분석 참조 |
+| 모듈 1 — BIOS 파이프라인 | OCR 한계 및 아키텍처 결론 | GUI BIOS는 Gemini Vision 위임 — 정당성 정량 확인 |
 | 모듈 1 — Real-Capture 평가 | 품질 게이트 / ROI 후보 검출 | 8/22 통과, 14/22 ROI 후보 검출 |
 | 모듈 2 — 변화 감지 | 전체 36조합 평균 F1 | **0.703** (CORREL+GRAY+w=5) |
 | 모듈 2 — 변화 감지 | 정상 화면 전환 F1 | **0.917** |
@@ -596,7 +622,7 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 
 <br>
 
-1. **모듈 1 — OCR 정량 미완성**: 로컬 Tesseract 설치 + 실제 BIOS 촬영 데이터셋이 없어 synthetic ablation에서 OCR 정확도 0.0. 브라우저에서는 Tesseract.js inference로 동작하나 정량 수치는 실기기 수집 후 재측정 필요.
+1. **모듈 1 — GUI BIOS OCR 한계**: Tesseract 5.4로 측정 결과 MSI Click BIOS 5(그래픽 GUI 타입)에서 BIOS 키워드 Recall 19.7%. CLAHE + Adaptive Threshold가 오히려 키워드 Recall 감소(-14.8%p). 텍스트 모드 BIOS(Award/AMI POST 화면)에서는 성능이 더 높을 것으로 예상되나 해당 데이터셋 미수집. 설계 결정: 텍스트 이해는 Gemini Vision에 위임, Tesseract는 벤더 식별에 한정.
 2. **모듈 2 — iOS 자동 초점 취약**: F1=0.621로 5개 시나리오 중 최저. 5프레임 연속으로 부분 완화하나 완전 제거 어려움.
 3. **모듈 3 — 소규모 데이터셋**: 4 good / 9 bad 샘플. 더 다양한 카메라/조명 환경 데이터 추가 시 임계값 재조정 필요.
 4. **카메라 50° 이상 각도**: Hough Line 모서리 검출 신뢰도 하락. 정면화 실패 시 원본 이미지 fallback 처리.
@@ -612,7 +638,7 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 
 | 항목 | 우선순위 | 비고 |
 |---|---|---|
-| 실기기 BIOS 촬영 데이터셋 수집 + OCR ablation 재측정 | 🥇 | 모듈 1 정량 완성 |
+| 텍스트 모드 BIOS(Award/Phoenix) 데이터셋 수집 + OCR 재측정 | 🥇 | 모듈 1 GUI BIOS 한계 보완 |
 | 모듈 4 — 비프음 멜 스펙트로그램 분류 | 🥈 | `notebooks/04-beep-spectrogram.ipynb` |
 | Phase 9 — MCP 매뉴얼 툴 연동 | 🔽 | CV 무관 (Future Work) |
 | Phase 10 — DB 이력 + 지식베이스 | 🔽 | CV 무관 (Future Work) |

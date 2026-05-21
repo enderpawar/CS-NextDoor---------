@@ -24,14 +24,6 @@ function validateFrame(frame: CvFrameInput): void {
   }
 }
 
-function lumaAt(frame: CvFrameInput, x: number, y: number): number {
-  const index = (y * frame.width + x) * 4;
-  const r = frame.data[index] ?? 0;
-  const g = frame.data[index + 1] ?? 0;
-  const b = frame.data[index + 2] ?? 0;
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-}
-
 function createHistogram(bins: number): number[] {
   return Array.from({ length: bins }, () => 0);
 }
@@ -44,6 +36,39 @@ function normalizeHistogram(histogram: number[], total: number): number[] {
 function addHistogramSample(histogram: number[], bins: number, luma: number): void {
   const bucket = Math.min(bins - 1, Math.floor(clamp01(luma) * bins));
   histogram[bucket] = (histogram[bucket] ?? 0) + 1;
+}
+
+function readLumaRow(
+  frame: CvFrameInput,
+  y: number,
+  target: Float64Array,
+  histogram: number[],
+  histogramBins: number,
+  accumulator: {
+    brightnessSum: number;
+    brightnessSquareSum: number;
+  },
+): void {
+  let index = y * frame.width * 4;
+
+  for (let x = 0; x < frame.width; x += 1) {
+    const r = frame.data[index] ?? 0;
+    const g = frame.data[index + 1] ?? 0;
+    const b = frame.data[index + 2] ?? 0;
+    const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    target[x] = luma;
+    accumulator.brightnessSum += luma;
+    accumulator.brightnessSquareSum += luma * luma;
+    addHistogramSample(histogram, histogramBins, luma);
+    index += 4;
+  }
+}
+
+function createBrightnessAccumulator(): {
+  brightnessSum: number;
+  brightnessSquareSum: number;
+} {
+  return { brightnessSum: 0, brightnessSquareSum: 0 };
 }
 
 export function compareHistograms(a: number[], b: number[]): number {
@@ -87,8 +112,7 @@ export function analyzeFrame(
 
   const resolved = { ...DEFAULT_OPTIONS, ...options };
   const histogram = createHistogram(resolved.histogramBins);
-  let brightnessSum = 0;
-  let brightnessSquareSum = 0;
+  const brightnessAccumulator = createBrightnessAccumulator();
   let laplacianSum = 0;
   let laplacianSquareSum = 0;
   let laplacianCount = 0;
@@ -98,23 +122,29 @@ export function analyzeFrame(
   let maxX = -1;
   let maxY = -1;
   const pixelCount = frame.width * frame.height;
+  const lumaRows = [
+    new Float64Array(frame.width),
+    new Float64Array(frame.width),
+    new Float64Array(frame.width),
+  ];
 
   for (let y = 0; y < frame.height; y += 1) {
-    for (let x = 0; x < frame.width; x += 1) {
-      const luma = lumaAt(frame, x, y);
-      brightnessSum += luma;
-      brightnessSquareSum += luma * luma;
-      addHistogramSample(histogram, resolved.histogramBins, luma);
-    }
-  }
+    const row = lumaRows[y % lumaRows.length]!;
+    readLumaRow(frame, y, row, histogram, resolved.histogramBins, brightnessAccumulator);
 
-  for (let y = 1; y < frame.height - 1; y += 1) {
+    if (y < 2) continue;
+
+    const centerY = y - 1;
+    const topRow = lumaRows[(y - 2) % lumaRows.length]!;
+    const centerRow = lumaRows[(y - 1) % lumaRows.length]!;
+    const bottomRow = row;
+
     for (let x = 1; x < frame.width - 1; x += 1) {
-      const center = lumaAt(frame, x, y);
-      const left = lumaAt(frame, x - 1, y);
-      const right = lumaAt(frame, x + 1, y);
-      const top = lumaAt(frame, x, y - 1);
-      const bottom = lumaAt(frame, x, y + 1);
+      const center = centerRow[x]!;
+      const left = centerRow[x - 1]!;
+      const right = centerRow[x + 1]!;
+      const top = topRow[x]!;
+      const bottom = bottomRow[x]!;
       const laplacian = (4 * center - left - right - top - bottom) * 255;
       laplacianSum += laplacian;
       laplacianSquareSum += laplacian * laplacian;
@@ -126,17 +156,17 @@ export function analyzeFrame(
       if (gradient >= resolved.edgeThreshold) {
         edgeCount += 1;
         minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
+        minY = Math.min(minY, centerY);
         maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
+        maxY = Math.max(maxY, centerY);
       }
     }
   }
 
-  const brightnessMean = pixelCount === 0 ? 0 : brightnessSum / pixelCount;
+  const brightnessMean = pixelCount === 0 ? 0 : brightnessAccumulator.brightnessSum / pixelCount;
   const brightnessVariance = pixelCount === 0
     ? 0
-    : Math.max(0, brightnessSquareSum / pixelCount - brightnessMean ** 2);
+    : Math.max(0, brightnessAccumulator.brightnessSquareSum / pixelCount - brightnessMean ** 2);
   const brightnessStdDev = Math.sqrt(brightnessVariance);
   const laplacianMean = laplacianCount === 0 ? 0 : laplacianSum / laplacianCount;
   const laplacianVariance = laplacianCount === 0
