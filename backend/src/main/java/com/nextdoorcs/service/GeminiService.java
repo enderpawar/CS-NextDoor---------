@@ -19,8 +19,7 @@ public class GeminiService {
     @Value("${gemini.api.key}")
     private String apiKey;
 
-    // gemini-3.1-pro-preview 접근 가능 시 application.properties에서 변경
-    @Value("${gemini.model:gemini-2.0-flash}")
+    @Value("${gemini.model:gemini-3.5-flash}")
     private String model;
 
     private static final String GEMINI_BASE_URL =

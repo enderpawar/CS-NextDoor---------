@@ -25,7 +25,7 @@ public class LiveGuideService {
     @Value("${gemini.api.key}")
     private String apiKey;
 
-    @Value("${gemini.model:gemini-2.0-flash}")
+    @Value("${gemini.model:gemini-3.5-flash}")
     private String model;
 
     // 세션 저장소 — 15분 TTL, 인메모리 (Phase 10 이전)

@@ -17,7 +17,7 @@ public class HealthController {
     @Value("${gemini.api.key:}")
     private String geminiApiKey;
 
-    @Value("${gemini.model:gemini-2.0-flash}")
+    @Value("${gemini.model:gemini-3.5-flash}")
     private String geminiModel;
 
     private final GeminiService geminiService;

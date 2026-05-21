@@ -10,7 +10,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-3.1-pro-preview
+        value: gemini-3.5-flash
       - key: RATE_LIMIT_DAILY
         value: "5"
       - key: ALLOWED_ORIGINS
