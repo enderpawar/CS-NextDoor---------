@@ -21,6 +21,8 @@ interface Props {
   metrics:      CvFrameInsightMetrics | null;
   bios:         BiosInsight | null;
   cvReady:      boolean;
+  /** Canny edge map 다운샘플 썸네일 data URL. null이면 placeholder 표시. */
+  edgeMapDataUrl?: string | null;
 }
 
 function QualityBar({ score }: { score: number }) {
@@ -35,7 +37,7 @@ function QualityBar({ score }: { score: number }) {
   );
 }
 
-export default function CvInsightPanel({ metrics, bios, cvReady }: Props) {
+export default function CvInsightPanel({ metrics, bios, cvReady, edgeMapDataUrl }: Props) {
   const textStatus = bios
     ? bios.textRegions >= 8 ? '충분' : bios.textRegions > 0 ? '부족' : '없음'
     : '--';
@@ -112,6 +114,23 @@ export default function CvInsightPanel({ metrics, bios, cvReady }: Props) {
               <span className="nd-cv-panel-val">{bios.processMs}ms</span>
             </div>
           )}
+
+          {/* Canny edge 미니 프리뷰 — OpenCV가 매 변화 감지마다 실제로 처리하고 있다는 시각 증거. */}
+          <div className="nd-cv-edge-preview">
+            <span className="nd-cv-edge-preview-label">Canny edges</span>
+            <div className="nd-cv-edge-preview-frame">
+              {edgeMapDataUrl ? (
+                <img
+                  className="nd-cv-edge-preview-img"
+                  src={edgeMapDataUrl}
+                  alt=""
+                  aria-hidden="true"
+                />
+              ) : (
+                <span className="nd-cv-edge-preview-empty">대기 중</span>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

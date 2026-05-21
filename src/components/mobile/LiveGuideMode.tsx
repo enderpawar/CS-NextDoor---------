@@ -58,7 +58,15 @@ const STATIC_FIRST_GUIDE: Record<GuideContext, string> = {
   HW_REPAIR_GPU:   'PC 케이스를 연 뒤 그래픽카드(GPU)와 PCIe 슬롯이 보이도록 비춰주세요. 분리·재장착 순서를 단계별로 안내할게요.',
 };
 
-const SHOW_CC_DEBUG_REGIONS = false;
+/** CC 텍스트 후보를 카메라 위에 표시할지. 좌표는 EMA/TTL로 안정화해서 표시한다. */
+const SHOW_CC_DEBUG_REGIONS = true;
+/** 화면 정면화용 quad 후보는 사용자 안내 타깃과 혼동되므로 기본 숨김. */
+const SHOW_QUAD_DEBUG_OVERLAY = false;
+const LIVE_OCR_OVERLAY_INTERVAL_MS = 900;
+const GUIDE_FRAME_WIDTH_RATIO = 0.82;
+const TEXT_REGION_TRACK_LIMIT = 10;
+const TEXT_REGION_SMOOTHING_ALPHA = 0.28;
+const TEXT_REGION_LOCK_MAX_MISSES = 10;
 const GALLERY_VIDEO_MAX_DURATION_SEC = 15;
 const GALLERY_VIDEO_MAX_SIZE_BYTES = 50 * 1024 * 1024;
 const GALLERY_VIDEO_SAMPLE_FPS = 4;
@@ -342,6 +350,159 @@ function smoothQuadCorners(
   });
 }
 
+interface TrackedTextRegion {
+  region: BiosTextRegion;
+  misses: number;
+}
+
+interface RectBounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface StableActiveTargetState {
+  key: string;
+  target: GuideOcrRegion;
+}
+
+function polygonCenter(points: number[][]): { x: number; y: number } {
+  if (!points.length) return { x: 0, y: 0 };
+  const sum = points.reduce(
+    (acc, point) => ({
+      x: acc.x + (point[0] ?? 0),
+      y: acc.y + (point[1] ?? 0),
+    }),
+    { x: 0, y: 0 },
+  );
+  return { x: sum.x / points.length, y: sum.y / points.length };
+}
+
+function getGuideFrameBounds(videoW: number, videoH: number): RectBounds {
+  const frameW = Math.min(videoW * GUIDE_FRAME_WIDTH_RATIO, videoW);
+  const frameH = Math.min(frameW * 9 / 16, videoH * GUIDE_FRAME_WIDTH_RATIO);
+  return {
+    x: (videoW - frameW) / 2,
+    y: (videoH - frameH) / 2,
+    w: frameW,
+    h: frameH,
+  };
+}
+
+function isPointInBounds(point: { x: number; y: number }, bounds: RectBounds): boolean {
+  return point.x >= bounds.x
+    && point.x <= bounds.x + bounds.w
+    && point.y >= bounds.y
+    && point.y <= bounds.y + bounds.h;
+}
+
+function smoothTextRegionPoints(
+  previous: number[][],
+  next: number[][],
+  alpha = TEXT_REGION_SMOOTHING_ALPHA,
+): number[][] {
+  if (previous.length !== next.length) return next;
+  return next.map((point, index) => {
+    const prevPoint = previous[index];
+    if (!prevPoint) return point;
+    return [
+      (prevPoint[0] ?? 0) * (1 - alpha) + (point[0] ?? 0) * alpha,
+      (prevPoint[1] ?? 0) * (1 - alpha) + (point[1] ?? 0) * alpha,
+    ];
+  });
+}
+
+function rankTextRegionsForGuide(
+  regions: BiosTextRegion[],
+  guideBounds: RectBounds,
+): BiosTextRegion[] {
+  const guideCenter = {
+    x: guideBounds.x + guideBounds.w / 2,
+    y: guideBounds.y + guideBounds.h / 2,
+  };
+
+  return [...regions]
+    .filter(region => isPointInBounds(polygonCenter(region.points), guideBounds))
+    .sort((a, b) => {
+      const ac = polygonCenter(a.points);
+      const bc = polygonCenter(b.points);
+      const aCenterScore = Math.hypot((ac.x - guideCenter.x) / guideBounds.w, (ac.y - guideCenter.y) / guideBounds.h);
+      const bCenterScore = Math.hypot((bc.x - guideCenter.x) / guideBounds.w, (bc.y - guideCenter.y) / guideBounds.h);
+      return (b.area - a.area) + (aCenterScore - bCenterScore) * 1200;
+    });
+}
+
+function lockTextRegions(
+  previousTracks: TrackedTextRegion[],
+  nextRegions: BiosTextRegion[],
+  videoW: number,
+  videoH: number,
+): TrackedTextRegion[] {
+  const guideBounds = getGuideFrameBounds(videoW, videoH);
+  const candidatesInGuide = rankTextRegionsForGuide(nextRegions, guideBounds);
+
+  if (!candidatesInGuide.length) {
+    return previousTracks
+      .filter(track => isPointInBounds(polygonCenter(track.region.points), guideBounds))
+      .map(track => ({ ...track, misses: track.misses + 1 }))
+      .filter(track => track.misses <= TEXT_REGION_LOCK_MAX_MISSES);
+  }
+
+  if (!previousTracks.length) {
+    return candidatesInGuide
+      .slice(0, TEXT_REGION_TRACK_LIMIT)
+      .map((region, index) => ({ region: { ...region, id: index + 1 }, misses: 0 }));
+  }
+
+  const maxDistance = Math.max(32, Math.min(videoW, videoH) * 0.075);
+  const usedCandidates = new Set<number>();
+  const updated: TrackedTextRegion[] = [];
+
+  for (const track of previousTracks) {
+    if (!isPointInBounds(polygonCenter(track.region.points), guideBounds)) continue;
+    const prevCenter = polygonCenter(track.region.points);
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    candidatesInGuide.forEach((candidate, index) => {
+      if (usedCandidates.has(index)) return;
+      const nextCenter = polygonCenter(candidate.points);
+      const distance = Math.hypot(nextCenter.x - prevCenter.x, nextCenter.y - prevCenter.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+
+    if (bestIndex >= 0 && bestDistance <= maxDistance) {
+      const matched = candidatesInGuide[bestIndex]!;
+      usedCandidates.add(bestIndex);
+      updated.push({
+        region: {
+          ...matched,
+          id: track.region.id,
+          area: track.region.area * 0.75 + matched.area * 0.25,
+          points: smoothTextRegionPoints(track.region.points, matched.points),
+        },
+        misses: 0,
+      });
+    } else {
+      const misses = track.misses + 1;
+      if (misses <= TEXT_REGION_LOCK_MAX_MISSES) {
+        updated.push({ ...track, misses });
+      }
+    }
+  }
+
+  let nextId = Math.max(0, ...updated.map(track => track.region.id)) + 1;
+  for (let i = 0; i < candidatesInGuide.length && updated.length < TEXT_REGION_TRACK_LIMIT; i++) {
+    if (usedCandidates.has(i)) continue;
+    updated.push({ region: { ...candidatesInGuide[i]!, id: nextId++ }, misses: 0 });
+  }
+
+  return updated.slice(0, TEXT_REGION_TRACK_LIMIT);
+}
 function normalizeTargetText(value: string): string {
   return value
     .toLowerCase()
@@ -472,6 +633,46 @@ function clampValue(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function getRegionCenter(region: GuideOcrRegion): { x: number; y: number } {
+  return {
+    x: region.bbox.x + region.bbox.w / 2,
+    y: region.bbox.y + region.bbox.h / 2,
+  };
+}
+
+function smoothOcrRegion(
+  previous: GuideOcrRegion,
+  next: GuideOcrRegion,
+  alpha = 0.22,
+): GuideOcrRegion {
+  return {
+    ...next,
+    bbox: {
+      x: previous.bbox.x * (1 - alpha) + next.bbox.x * alpha,
+      y: previous.bbox.y * (1 - alpha) + next.bbox.y * alpha,
+      w: previous.bbox.w * (1 - alpha) + next.bbox.w * alpha,
+      h: previous.bbox.h * (1 - alpha) + next.bbox.h * alpha,
+    },
+    points: smoothTextRegionPoints(previous.points, next.points, alpha),
+  };
+}
+
+function stabilizeActiveTarget(
+  previousState: StableActiveTargetState | null,
+  nextTarget: GuideOcrRegion | null,
+  key: string,
+  videoSize: { w: number; h: number } | null,
+): StableActiveTargetState | null {
+  if (!nextTarget) return null;
+  if (!previousState || previousState.key !== key || !videoSize) {
+    return { key, target: nextTarget };
+  }
+
+  // 같은 단계 안내에서는 타깃을 절대 다시 계산하지 않는다.
+  // OCR/CC 후보 갱신, React 재렌더, 스트리밍 텍스트 변경이 있어도 초록 박스는 처음 잡은 좌표에 고정된다.
+  return previousState;
+}
+
 function makeClickableTargetRegion(
   region: GuideOcrRegion,
   videoSize: { w: number; h: number } | null,
@@ -534,15 +735,18 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const [hwSafetyModalOpen, setHwSafetyModalOpen] = useState(false);
 
   // CV Insight 패널 상태 (Task 3)
+  // 기본값 true: CV 처리 시각화가 본 앱의 차별 포인트이므로 첫 진입 시 노출.
+  // 사용자가 명시적으로 '0'을 저장한 경우만 닫힘 — 토글 누른 사용자 의사 존중.
   const [cvPanelOpen,   setCvPanelOpen]   = useState(() => {
     try {
-      return localStorage.getItem('nd-cv-panel-open') === '1';
+      return localStorage.getItem('nd-cv-panel-open') !== '0';
     } catch {
-      return false;
+      return true;
     }
   });
   const [cvMetrics,     setCvMetrics]     = useState<CvFrameInsightMetrics | null>(null);
   const [biosInsight,   setBiosInsight]   = useState<{ rectified: boolean; textRegions: number; processMs: number } | null>(null);
+  const [edgeMapDataUrl, setEdgeMapDataUrl] = useState<string | null>(null);
 
   // Thumb-zone 액션 바 상태 (Task 5)
   const [biosType,       setBiosType]       = useState<BiosType | null>(null);
@@ -559,6 +763,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const [biosOcrRegions, setBiosOcrRegions] = useState<GuideOcrRegion[]>([]);
   const [biosVideoSize, setBiosVideoSize] = useState<{ w: number; h: number } | null>(null);
   const [frozenFrame, setFrozenFrame] = useState<FrozenFrame | null>(null);
+  const [manualCaptureBusy, setManualCaptureBusy] = useState(false);
 
   const videoRef              = useRef<HTMLVideoElement>(null);
   const canvasRef             = useRef<HTMLCanvasElement>(null);
@@ -567,7 +772,9 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const isSwitchingContextRef = useRef(false);
   const cameraStartingRef     = useRef(false);
   const smoothedCornersRef    = useRef<number[][] | null>(null);
+  const lockedTextRegionsRef  = useRef<TrackedTextRegion[]>([]);
   const overlaySizeRef        = useRef<{ w: number; h: number } | null>(null);
+  const stableActiveTargetRef = useRef<StableActiveTargetState | null>(null);
   const lastQualityFeedbackRef = useRef('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const capturedHistRef = useRef<any>(null);
@@ -599,6 +806,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     overlay: {
       corners: number[][] | null;
       textRegions: BiosTextRegion[];
+      edgeMapDataUrl: string | null;
       videoSize: { w: number; h: number };
       biosInsight: { rectified: boolean; textRegions: number; processMs: number } | null;
     };
@@ -623,7 +831,10 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setBiosTextRegions([]);
     setBiosOcrRegions([]);
     setBiosVideoSize(null);
+    setEdgeMapDataUrl(null);
     smoothedCornersRef.current = null;
+    lockedTextRegionsRef.current = [];
+    stableActiveTargetRef.current = null;
     overlaySizeRef.current = null;
     guide.setArTarget(null);
   }, [guide.setArTarget]);
@@ -656,19 +867,26 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setCvMetrics(m);
   }, []);
 
-  // ── Task 7: AR 오버레이 — Hough 모서리 EMA 스무딩 + CC 텍스트 후보 수신 ──
+  // ── Task 7: AR 오버레이 — Hough 모서리 EMA 스무딩 + CC 텍스트 후보 + Canny edge 썸네일 수신 ──
   const handleBiosOverlay = useCallback(
-    ({ corners, textRegions, videoW, videoH }: BiosArOverlay) => {
+    ({ corners, textRegions, edgeMapDataUrl: nextEdgeMap, videoW, videoH }: BiosArOverlay) => {
       const previousSize = overlaySizeRef.current;
       const sizeChanged = !previousSize || previousSize.w !== videoW || previousSize.h !== videoH;
       const smoothedCorners = frozenFrame
         ? corners
         : smoothQuadCorners(sizeChanged ? null : smoothedCornersRef.current, corners);
+      const lockedTextRegions = frozenFrame
+        ? textRegions.slice(0, TEXT_REGION_TRACK_LIMIT).map((region, index) => ({ region: { ...region, id: index + 1 }, misses: 0 }))
+        : lockTextRegions(sizeChanged ? [] : lockedTextRegionsRef.current, textRegions, videoW, videoH);
+      const visibleTextRegions = lockedTextRegions.map(track => track.region);
       overlaySizeRef.current = { w: videoW, h: videoH };
       smoothedCornersRef.current = smoothedCorners;
+      lockedTextRegionsRef.current = lockedTextRegions;
       setBiosCorners(smoothedCorners);
       setBiosVideoSize({ w: videoW, h: videoH });
-      setBiosTextRegions(textRegions);
+      setBiosTextRegions(visibleTextRegions);
+      // edge map은 명시적 null만 클리어 — undefined는 직전 프레임 유지 (호출자 미지정 케이스 보호).
+      if (nextEdgeMap !== undefined) setEdgeMapDataUrl(nextEdgeMap);
     },
     [frozenFrame],
   );
@@ -734,6 +952,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         let cvSummary = '';
         let galleryCorners: number[][] | null = null;
         let galleryTextRegions: BiosTextRegion[] = [];
+        let galleryEdgeMap: string | null = null;
         let galleryBiosInsight: { rectified: boolean; textRegions: number; processMs: number } | null = null;
 
         if (isVideo) {
@@ -818,11 +1037,14 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             cvSummary = [
               cvSummary,
               `biosRectified=${preprocessed.rectified}`,
+              `biosRectSource=${preprocessed.rectificationSource ?? 'none'}`,
+              `biosRectScore=${preprocessed.rectificationScore.toFixed(2)}`,
               `biosTextRegions=${preprocessed.textRegionCount}`,
               `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
             ].join(', ');
             galleryCorners = preprocessed.corners;
             galleryTextRegions = preprocessed.textRegions;
+            galleryEdgeMap = preprocessed.edgeMapDataUrl;
             galleryBiosInsight = {
               rectified:   preprocessed.rectified,
               textRegions: preprocessed.textRegionCount,
@@ -831,6 +1053,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             handleBiosOverlay({
               corners: preprocessed.corners,
               textRegions: preprocessed.textRegions,
+              edgeMapDataUrl: preprocessed.edgeMapDataUrl,
               videoW: width,
               videoH: height,
             });
@@ -867,6 +1090,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           overlay: {
             corners: galleryCorners,
             textRegions: galleryTextRegions,
+            edgeMapDataUrl: galleryEdgeMap,
             videoSize: { w: width, h: height },
             biosInsight: galleryBiosInsight,
           },
@@ -879,6 +1103,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           setFrozenFrame(pending.displayFrame);
           setBiosCorners(pending.overlay.corners);
           setBiosTextRegions(pending.overlay.textRegions);
+          setEdgeMapDataUrl(pending.overlay.edgeMapDataUrl);
           setBiosVideoSize(pending.overlay.videoSize);
           setBiosInsight(pending.overlay.biosInsight);
           setBiosOcrRegions(pending.ocrRegions);
@@ -944,6 +1169,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
 
   // ── 수동 프레임 캡처 ("다음 단계" 버튼) ──────────────────────────────────
   const handleManualCapture = useCallback(async (userQuestion?: string, actionResultOverride?: ActionResult) => {
+    if (manualCaptureBusy) return;
     const shouldUseInitialQuestion = !userQuestion?.trim() && !guide.streamText && !!initialQuestionRef.current;
     const question = userQuestion?.trim() || (shouldUseInitialQuestion ? initialQuestionRef.current : '');
     const actionResult = actionResultOverride ?? lastActionResultRef.current;
@@ -969,12 +1195,15 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         `ocrRegions=${biosOcrRegions.length}`,
       ].join(', ');
       setQualityText('');
+      setManualCaptureBusy(true);
       try {
         await guide.sendFrame(base64, null, cvSummary, biosOcrRegions, question, effectiveGoal || undefined);
         if (shouldUseInitialQuestion) initialQuestionRef.current = '';
         lastActionResultRef.current = 'none';
       } catch {
         // sendFrame 내부에서 처리됨
+      } finally {
+        setManualCaptureBusy(false);
       }
       return;
     }
@@ -984,88 +1213,94 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    setManualCaptureBusy(true);
     const video = videoRef.current;
-    const videoReady = !!video && video.readyState >= 2 && video.videoWidth > 0;
-    canvas.width  = videoReady ? video!.videoWidth  : 640;
-    canvas.height = videoReady ? video!.videoHeight : 360;
-    if (videoReady) ctx.drawImage(video!, 0, 0);
-    else            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    setFrozenFrame({
-      dataUrl: canvas.toDataURL('image/jpeg', 0.85),
-      width: canvas.width,
-      height: canvas.height,
-    });
-
-    const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    let base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
-    let cvSummary = [
-      'manualCapture=true',
-      question ? 'userQuestion=true' : 'userQuestion=false',
-      question
-        ? (guide.streamText ? 'guidePhase=question-followup' : 'guidePhase=question-initial')
-        : (guide.streamText ? 'guidePhase=followup' : 'guidePhase=initial'),
-      `previousActionResult=${actionResult}`,
-    ].join(', ');
-
     try {
-      if (!cvReady) throw new Error('cv not ready');
-      const preprocessed = preprocessBiosFrameForGuide(rgba);
-      setBiosInsight({
-        rectified: preprocessed.rectified,
-        textRegions: preprocessed.textRegionCount,
-        processMs: Math.round(preprocessed.processingMs),
-      });
-      handleBiosOverlay({
-        corners: preprocessed.corners,
-        textRegions: preprocessed.textRegions,
-        videoW: canvas.width,
-        videoH: canvas.height,
-      });
-      cvSummary = [
-        cvSummary,
-        `biosRectified=${preprocessed.rectified}`,
-        `biosTextRegions=${preprocessed.textRegionCount}`,
-        `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
-      ].join(', ');
-    } catch {
-      setBiosCorners(null);
-      setBiosTextRegions([]);
-      cvSummary = `${cvSummary}, biosPreprocess=failed`;
-    }
+      const videoReady = !!video && video.readyState >= 2 && video.videoWidth > 0;
+      canvas.width  = videoReady ? video!.videoWidth  : 640;
+      canvas.height = videoReady ? video!.videoHeight : 360;
+      if (videoReady) ctx.drawImage(video!, 0, 0);
+      else            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    let ocrRegions: GuideOcrRegion[] = [];
-    if (cvReady) {
-      const ocrFrame = new ImageData(
-        new Uint8ClampedArray(rgba.data),
-        rgba.width,
-        rgba.height,
-      );
+      setFrozenFrame({
+        dataUrl: canvas.toDataURL('image/jpeg', 0.85),
+        width: canvas.width,
+        height: canvas.height,
+      });
+
+      const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      let base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
+      let cvSummary = [
+        'manualCapture=true',
+        question ? 'userQuestion=true' : 'userQuestion=false',
+        question
+          ? (guide.streamText ? 'guidePhase=question-followup' : 'guidePhase=question-initial')
+          : (guide.streamText ? 'guidePhase=followup' : 'guidePhase=initial'),
+        `previousActionResult=${actionResult}`,
+      ].join(', ');
+
       try {
-        const ocrResult = await runBiosPipeline(ocrFrame);
-        ocrRegions = ocrResult.ocrRegions;
-        setBiosOcrRegions(ocrRegions);
+        if (!cvReady) throw new Error('cv not ready');
+        const preprocessed = preprocessBiosFrameForGuide(rgba);
+        setBiosInsight({
+          rectified: preprocessed.rectified,
+          textRegions: preprocessed.textRegionCount,
+          processMs: Math.round(preprocessed.processingMs),
+        });
+        handleBiosOverlay({
+          corners: preprocessed.corners,
+          textRegions: preprocessed.textRegions,
+          edgeMapDataUrl: preprocessed.edgeMapDataUrl,
+          videoW: canvas.width,
+          videoH: canvas.height,
+        });
         cvSummary = [
           cvSummary,
-          `ocrRegions=${ocrRegions.length}`,
-          `ocrConfidence=${ocrResult.confidence.toFixed(2)}`,
+          `biosRectified=${preprocessed.rectified}`,
+          `biosRectSource=${preprocessed.rectificationSource ?? 'none'}`,
+          `biosRectScore=${preprocessed.rectificationScore.toFixed(2)}`,
+          `biosTextRegions=${preprocessed.textRegionCount}`,
+          `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
         ].join(', ');
-        if (ocrResult.detectedVendor && !vendorDetectedRef.current) {
-          applyDetectedVendor(ocrResult.detectedVendor);
-        }
-      } catch (err) {
-        console.warn('[liveGuide] OCR pipeline failed:', err);
-        setBiosOcrRegions([]);
+      } catch {
+        setBiosCorners(null);
+        setBiosTextRegions([]);
+        cvSummary = `${cvSummary}, biosPreprocess=failed`;
       }
-    }
 
-    try {
+      let ocrRegions: GuideOcrRegion[] = [];
+      if (cvReady) {
+        const ocrFrame = new ImageData(
+          new Uint8ClampedArray(rgba.data),
+          rgba.width,
+          rgba.height,
+        );
+        try {
+          const ocrResult = await runBiosPipeline(ocrFrame);
+          ocrRegions = ocrResult.ocrRegions;
+          setBiosOcrRegions(ocrRegions);
+          cvSummary = [
+            cvSummary,
+            `ocrRegions=${ocrRegions.length}`,
+            `ocrConfidence=${ocrResult.confidence.toFixed(2)}`,
+          ].join(', ');
+          if (ocrResult.detectedVendor && !vendorDetectedRef.current) {
+            applyDetectedVendor(ocrResult.detectedVendor);
+          }
+        } catch (err) {
+          console.warn('[liveGuide] OCR pipeline failed:', err);
+          setBiosOcrRegions([]);
+        }
+      }
+
       setQualityText('');
       await guide.sendFrame(base64, null, cvSummary, ocrRegions, question || undefined, effectiveGoal || undefined);
       if (shouldUseInitialQuestion) initialQuestionRef.current = '';
       lastActionResultRef.current = 'none';
     } catch {
       // sendFrame 내부에서 처리됨
+    } finally {
+      setManualCaptureBusy(false);
     }
   }, [
     guide,
@@ -1078,6 +1313,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     frozenFrame,
     biosOcrRegions,
     setTaskGoal,
+    manualCaptureBusy,
   ]);
 
   const finishDiagnosticClipCapture = useCallback(async (fallbackToPhoto = true) => {
@@ -1233,11 +1469,15 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   }, [clipCaptureState, guide.captureState]);
 
   const cvProcessingPaused =
-    showShootingGuide
-    || goalSheetOpen
+    goalSheetOpen
     || contextSheetOpen
     || hwSafetyModalOpen
     || exitConfirmOpen
+    || !!frozenFrame
+    || manualCaptureBusy
+    || clipCaptureState !== 'idle'
+    || guide.captureState !== 'idle'
+    || galleryProcessing
     || page !== 'camera';
 
   const { currentHistRef } = useLiveFrameCapture({
@@ -1253,6 +1493,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     enableBiosVendorOcr:  !isHwRepairContext(context) && !vendorDetectedRef.current,
     enableBiosPreprocess: !isHwRepairContext(context),
     enableAutoFrameSend:  false,
+    overlayIntervalMs:    LIVE_OCR_OVERLAY_INTERVAL_MS,
     paused:               cvProcessingPaused,
   });
 
@@ -1311,6 +1552,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         setFrozenFrame(pending.displayFrame);
         setBiosCorners(pending.overlay.corners);
         setBiosTextRegions(pending.overlay.textRegions);
+        setEdgeMapDataUrl(pending.overlay.edgeMapDataUrl);
         setBiosVideoSize(pending.overlay.videoSize);
         setBiosInsight(pending.overlay.biosInsight);
         setBiosOcrRegions(pending.ocrRegions);
@@ -1725,9 +1967,29 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     ? textRegionToArTarget(biosTextRegions[0])
     : null;
   const rawActiveOcrTarget = visionBboxTarget ?? selectedOcrTarget ?? arHintMatchedTarget ?? fallbackOcrTarget ?? fallbackTextRegionTarget;
-  const activeOcrTarget = rawActiveOcrTarget
+  const activeTargetKey = guide.arTarget
+    ? [
+        guide.arTarget.targetId ?? '',
+        guide.arTarget.label ?? '',
+        guide.arTarget.reason ?? '',
+        guide.arTarget.bbox ? JSON.stringify(guide.arTarget.bbox) : '',
+        taskGoal,
+      ].join('|')
+    : [
+        normalizeTargetText(guide.streamText),
+        taskGoal,
+        context,
+      ].join('|');
+  const nextActiveOcrTarget = rawActiveOcrTarget
     ? makeClickableTargetRegion(rawActiveOcrTarget, biosVideoSize, visionBboxTarget ? 'vision' : 'fallback')
     : null;
+  stableActiveTargetRef.current = stabilizeActiveTarget(
+    stableActiveTargetRef.current,
+    nextActiveOcrTarget,
+    activeTargetKey,
+    biosVideoSize,
+  );
+  const activeOcrTarget = stableActiveTargetRef.current?.target ?? null;
   const isActionMode = guide.arTarget?.mode === 'action' || isHwRepairContext(context);
   const activeTargetLabel = isActionMode
     ? (guide.arTarget?.label ?? '여기를 조치하세요!')
@@ -1756,7 +2018,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     ? getTargetLabelPosition(activeOcrTarget, biosVideoSize, activeTargetLabelWidth)
     : null;
   const visibleTextRegions: BiosTextRegion[] = SHOW_CC_DEBUG_REGIONS
-    ? biosTextRegions.slice(0, activeOcrTarget ? 6 : 10)
+    ? (frozenFrame ? [] : biosTextRegions.slice(0, activeOcrTarget ? 6 : 10))
     : [];
   const hasFrozenFrame = !!frozenFrame;
 
@@ -1792,16 +2054,18 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             </>
           )}
         </button>
-        <button
-          type="button"
-          className={`nd-cv-status${cvReady ? ' ready' : ''}${cvPanelOpen ? ' panel-open' : ''}`}
-          title={cvPanelOpen ? '화면 인식 정보 닫기' : '화면 인식 정보 보기'}
-          aria-label={cvPanelOpen ? '화면 인식 정보 닫기' : '화면 인식 정보 보기'}
-          aria-pressed={cvPanelOpen}
-          onClick={() => setCvPanelOpen(v => !v)}
-        >
-          {cvReady ? '🔬' : '⌛'}
-        </button>
+        {!goalSheetOpen && (
+          <button
+            type="button"
+            className={`nd-cv-status${cvReady ? ' ready' : ''}${cvPanelOpen ? ' panel-open' : ''}`}
+            title={cvPanelOpen ? '화면 인식 정보 닫기' : '화면 인식 정보 보기'}
+            aria-label={cvPanelOpen ? '화면 인식 정보 닫기' : '화면 인식 정보 보기'}
+            aria-pressed={cvPanelOpen}
+            onClick={() => setCvPanelOpen(v => !v)}
+          >
+            {cvReady ? '🔬' : '⌛'}
+          </button>
+        )}
       </div>
       {guide.llmMode === 'mock' && (
         <div
@@ -1851,14 +2115,14 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         {/* Task 7: AR 오버레이 — Hough 모서리 + 클릭 대상 OCR 타깃.
             CC 후보는 디버그 데이터로만 유지하고 기본 화면에는 렌더하지 않음.
             viewBox + preserveAspectRatio="xMidYMid slice" = CSS object-fit:cover와 동일 매핑 */}
-        {biosVideoSize && (biosCorners || visibleTextRegions.length > 0 || activeOcrTarget) && (
+        {biosVideoSize && ((SHOW_QUAD_DEBUG_OVERLAY && biosCorners) || visibleTextRegions.length > 0 || activeOcrTarget) && (
           <svg
             className="nd-ar-overlay"
             viewBox={`0 0 ${biosVideoSize.w} ${biosVideoSize.h}`}
             preserveAspectRatio="xMidYMid slice"
             aria-hidden="true"
           >
-            {biosCorners && (
+            {SHOW_QUAD_DEBUG_OVERLAY && biosCorners && (
               <>
                 <polygon
                   points={biosCorners.map(([x, y]) => `${x},${y}`).join(' ')}
@@ -1915,29 +2179,14 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           </svg>
         )}
 
-        {/* CV Insight 패널 — 카메라 우상단 오버레이 */}
-        <button
-          type="button"
-          className={`nd-cv-panel-toggle${cvPanelOpen ? ' is-open' : ' is-collapsed'}${cvReady ? ' ready' : ''}`}
-          onClick={() => setCvPanelOpen(v => !v)}
-          aria-label={cvPanelOpen ? '화면 인식 정보 접기' : '화면 인식 정보 펼치기'}
-          aria-pressed={cvPanelOpen}
-        >
-          {cvPanelOpen ? (
-            <span aria-hidden="true">▶</span>
-          ) : (
-            <>
-              <span className="nd-cv-panel-toggle-dot" aria-hidden="true" />
-              <span>인식</span>
-            </>
-          )}
-        </button>
-        {cvPanelOpen && (
+        {/* CV Insight 패널 — 카메라 우상단 오버레이 (goalSheet 열리면 숨김) */}
+        {cvPanelOpen && !goalSheetOpen && (
           <div className="nd-cv-panel-wrapper">
             <CvInsightPanel
               metrics={cvMetrics}
               bios={biosInsight}
               cvReady={cvReady}
+              edgeMapDataUrl={edgeMapDataUrl}
             />
           </div>
         )}

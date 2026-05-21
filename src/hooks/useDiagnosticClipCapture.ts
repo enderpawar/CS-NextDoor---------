@@ -207,9 +207,10 @@ function drawScaledFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement): Di
 }
 
 function selectDiagnosticFrames(frames: DiagnosticClipFrame[]) {
-  const candidates = frames.map((frame, index) => {
-    const previous = index > 0 ? analyzeFrame(frames[index - 1]!.frame).histogram : undefined;
-    const metrics = analyzeFrame(frame.frame, previous);
+  let previousHistogram: number[] | undefined;
+  const candidates = frames.map(frame => {
+    const metrics = analyzeFrame(frame.frame, previousHistogram);
+    previousHistogram = metrics.histogram;
     return { ...frame, metrics };
   });
 

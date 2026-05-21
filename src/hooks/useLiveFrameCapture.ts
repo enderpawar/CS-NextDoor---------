@@ -29,6 +29,7 @@ import type { BiosType, CvFrameInput } from '../types';
 // vendor OCR 호출 제한 — 한 세션 내 최대 3회 시도, 시도 간 5초 cooldown
 const VENDOR_OCR_MAX_ATTEMPTS = 3;
 const VENDOR_OCR_COOLDOWN_MS  = 5000;
+const DEFAULT_OVERLAY_INTERVAL_MS = 700;
 
 /** CV Insight 패널에 전달할 라이브 메트릭 (300ms 스로틀) */
 export interface CvFrameInsightMetrics {
@@ -42,6 +43,8 @@ export interface BiosArOverlay {
   textRegions: BiosTextRegion[];
   videoW: number;
   videoH: number;
+  /** Canny edge map 다운샘플 썸네일 (CV 패널 미니 프리뷰). null이면 패널이 자체 placeholder 표시. */
+  edgeMapDataUrl?: string | null;
 }
 
 interface UseLiveFrameCaptureOptions {
@@ -68,6 +71,8 @@ interface UseLiveFrameCaptureOptions {
    */
   paused?: boolean;
   cooldownMs?:       number;
+  /** CV overlay/Canny preview 갱신 주기. Gemini 전송 cooldown과 독립. */
+  overlayIntervalMs?: number;
   histThreshold?:    number;
   minQualityScore?:  number;
 }
@@ -87,6 +92,7 @@ export function useLiveFrameCapture({
   enableAutoFrameSend = true,
   paused = false,
   cooldownMs      = 2000,
+  overlayIntervalMs = DEFAULT_OVERLAY_INTERVAL_MS,
   histThreshold   = BEST_PARAMS.threshold,
   minQualityScore = 30,
 }: UseLiveFrameCaptureOptions) {
@@ -96,6 +102,17 @@ export function useLiveFrameCapture({
   const changeCountRef     = useRef<number>(0);
   const lastHistScoreRef   = useRef<number>(1);        // 마지막 비교 유사도 (1=동일)
   const lastMetricsRef     = useRef<number>(0);        // 메트릭 업데이트 스로틀 타임스탬프
+  // AR overlay (Hough corners + CC line regions) 업데이트 주기 — 히스토그램 변화와 무관하게
+  // 일정 간격으로 처리해 사용자가 "OpenCV가 실시간으로 분석 중"임을 시각적으로 인지하게 함.
+  // Gemini 전송은 별도의 cooldownMs + 3프레임 변화 조건으로 게이트되므로 비용 영향 없음.
+  const lastOverlayRef     = useRef<number>(0);
+  const lastPreprocessRef  = useRef<{
+    rectified: boolean;
+    rectificationSource: string | null;
+    rectificationScore: number;
+    textRegionCount: number;
+    processingMs: number;
+  } | null>(null);
   const lastFeedbackRef    = useRef<string | null>(null);
   const vendorOcrRunningRef = useRef(false);
   const vendorOcrAttemptsRef = useRef(0);              // 누적 OCR 시도 횟수 (성공 시 리셋)
@@ -140,14 +157,19 @@ export function useLiveFrameCapture({
       return;
     }
 
-    const ctx = canvas.getContext('2d');
+    if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+      rafRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
       rafRef.current = requestAnimationFrame(processFrame);
       return;
     }
 
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
+    if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
 
     const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -170,6 +192,34 @@ export function useLiveFrameCapture({
 
     emitQualityFeedback('');
 
+    const now = performance.now();
+
+    // ── AR overlay 업데이트: 기본 700ms 주기 (히스토그램 변화와 독립) ───────
+    // BIOS Hough 모서리 + CC 텍스트 라인 + Canny edge map을 일정 간격으로 갱신.
+    // Gemini 전송은 별도 cooldown으로 게이트되므로 이 처리는 비용에 영향 없음.
+    if (enableBiosPreprocess && now - lastOverlayRef.current > overlayIntervalMs) {
+      lastOverlayRef.current = now;
+      try {
+        const preprocessed = preprocessBiosFrameForGuide(rgba);
+        lastPreprocessRef.current = {
+          rectified: preprocessed.rectified,
+          rectificationSource: preprocessed.rectificationSource,
+          rectificationScore: preprocessed.rectificationScore,
+          textRegionCount: preprocessed.textRegionCount,
+          processingMs: preprocessed.processingMs,
+        };
+        onBiosOverlay?.({
+          corners: preprocessed.corners,
+          textRegions: preprocessed.textRegions,
+          edgeMapDataUrl: preprocessed.edgeMapDataUrl,
+          videoW: canvas.width,
+          videoH: canvas.height,
+        });
+      } catch {
+        // 전처리 실패 — 다음 사이클에서 재시도. overlay는 그대로 유지.
+      }
+    }
+
     // ── [모듈 2] 히스토그램 변화 감지 ────────────────────────────────────────
     let hist: any;
     try {
@@ -183,7 +233,6 @@ export function useLiveFrameCapture({
     currentHistRef.current?.delete();
     currentHistRef.current = hist.clone();
 
-    const now       = performance.now();
     const cooledDown = now - lastSentRef.current > cooldownMs;
 
     if (!prevHistRef.current) {
@@ -194,16 +243,18 @@ export function useLiveFrameCapture({
 
       lastHistScoreRef.current = score;  // 메트릭 패널용 저장
 
-      if (changed && enableAutoFrameSend) {
+      if (changed) {
         changeCountRef.current++;
-        // 연속 3프레임 모두 변화 시에만 전송 (false positive — 손 떨림/Rolling Shutter 차단)
+        // 연속 3프레임 모두 변화 시에만 다음 단계 (false positive — 손 떨림/Rolling Shutter 차단)
         if (changeCountRef.current >= BEST_PARAMS.windowSize) {
           changeCountRef.current = 0;
           prevHistRef.current.delete();
           prevHistRef.current = hist.clone();
           lastSentRef.current = now;
 
-          let base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
+          // ── AR 오버레이는 enableAutoFrameSend와 무관하게 항상 업데이트 ──
+          //   라이브 프리뷰에서 "OpenCV가 실시간으로 처리 중"임을 시각화하기 위함.
+          //   Gemini 전송만 enableAutoFrameSend로 게이트.
           let cvSummary = [
             `qualityScore=${metrics.qualityScore}`,
             `laplacianVariance=${metrics.laplacianVariance.toFixed(2)}`,
@@ -216,35 +267,27 @@ export function useLiveFrameCapture({
           ].join(', ');
 
           if (enableBiosPreprocess) {
-            try {
-              const preprocessed = preprocessBiosFrameForGuide(rgba);
+            // AR overlay 사이클(700ms)이 이미 최신 BIOS 전처리 결과를 lastPreprocessRef에 캐싱.
+            // 히스토그램 변화 시점에서 추가 호출하지 않고 캐시 값을 cvSummary에 그대로 첨부.
+            const cached = lastPreprocessRef.current;
+            if (cached) {
               cvSummary = [
                 cvSummary,
-                `biosRectified=${preprocessed.rectified}`,
-                `biosTextRegions=${preprocessed.textRegionCount}`,
-                `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
+                `biosRectified=${cached.rectified}`,
+                `biosRectSource=${cached.rectificationSource ?? 'none'}`,
+                `biosRectScore=${cached.rectificationScore.toFixed(2)}`,
+                `biosTextRegions=${cached.textRegionCount}`,
+                `biosPreprocessMs=${Math.round(cached.processingMs)}`,
               ].join(', ');
-              onBiosOverlay?.({
-                corners: preprocessed.corners,
-                textRegions: preprocessed.textRegions,
-                videoW: canvas.width,
-                videoH: canvas.height,
-              });
-            } catch {
-              cvSummary = `${cvSummary}, biosPreprocess=failed`;
-              onBiosOverlay?.({
-                corners: null,
-                textRegions: [],
-                videoW: canvas.width,
-                videoH: canvas.height,
-              });
+            } else {
+              cvSummary = `${cvSummary}, biosPreprocess=pending`;
             }
           } else {
             cvSummary = `${cvSummary}, biosPreprocess=skipped`;
           }
 
-          // vendor OCR: 시도 횟수(최대 3회) + cooldown(5초) 제한
-          // — Tesseract.js는 모바일에서 1~3초 소요, 무제한 재시도 시 배터리/메모리 부담
+          // vendor OCR: enableAutoFrameSend 무관하게 시도 — 라이브 프리뷰에서도 vendor 자동 감지가 동작해야 함.
+          //   시도 횟수(최대 3회) + cooldown(5초) 제한으로 모바일 배터리/메모리 부담 차단.
           const ocrCooledDown = now - vendorOcrLastTryRef.current > VENDOR_OCR_COOLDOWN_MS;
           const ocrUnderLimit = vendorOcrAttemptsRef.current < VENDOR_OCR_MAX_ATTEMPTS;
           if (
@@ -276,8 +319,12 @@ export function useLiveFrameCapture({
               });
           }
 
-          const histSnapshot = hist.clone();   // caller(.LiveGuideMode)가 delete 책임
-          onFrameChange(base64, histSnapshot, cvSummary);
+          // ── Gemini 전송: enableAutoFrameSend가 true일 때만 ──
+          if (enableAutoFrameSend) {
+            const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
+            const histSnapshot = hist.clone();   // caller(.LiveGuideMode)가 delete 책임
+            onFrameChange(base64, histSnapshot, cvSummary);
+          }
         }
       } else {
         changeCountRef.current = 0;  // 변화 없는 프레임 1개라도 끼이면 리셋
@@ -300,7 +347,7 @@ export function useLiveFrameCapture({
     cvReady, canvasRef, videoRef, isSendingRef,
     onFrameChange, emitQualityFeedback, onMetricsUpdate, onBiosOverlay,
     onBiosVendorDetected, enableBiosVendorOcr, enableBiosPreprocess, enableAutoFrameSend,
-    cooldownMs, histThreshold, minQualityScore,
+    cooldownMs, overlayIntervalMs, histThreshold, minQualityScore,
   ]);
 
   useEffect(() => {
@@ -312,6 +359,8 @@ export function useLiveFrameCapture({
       prevHistRef.current = null;
       currentHistRef.current?.delete();
       currentHistRef.current = null;
+      lastPreprocessRef.current = null;
+      lastOverlayRef.current = 0;
     };
   }, [cvReady, processFrame]);
 

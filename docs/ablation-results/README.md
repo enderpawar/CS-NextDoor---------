@@ -91,6 +91,31 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 | `quality-threshold-tuning.png` | 임계값 vs 거부율/손실률 트레이드오프 |
 | `quality-cost-savings.csv` | 필터 적용 전후 Gemini 호출 절감 시뮬레이션 |
 
+### 전체 파이프라인 비교 (Gemini Only vs CV + Gemini)
+
+60초 세션 시뮬레이션 기반 (30fps = 1,800 프레임, 실촬영 BIOS 36.4% 품질 통과율 적용).
+
+| 파일 | 내용 |
+|---|---|
+| `pipeline-comparison-funnel.png` | 프레임 → 품질 게이트 → 변화 감지 → Gemini 전송 퍼널 |
+| `pipeline-comparison-api-calls.png` | API 호출 횟수·품질 분해·비용 비교 막대 그래프 |
+| `pipeline-comparison-timeline.png` | 60초 세션 타임라인 — 언제 Gemini에 전송하는가 |
+| `pipeline-comparison-quality.png` | 전송 프레임 품질 분포 비교 |
+| `pipeline-comparison-fp.png` | window 크기 효과 — FP 감소와 F1 개선 (normal-change) |
+| `pipeline-comparison-summary.csv` | 핵심 수치 요약 |
+
+#### 핵심 결과 (60초 BIOS 세션 기준)
+
+| 지표 | Gemini Only (매 2초) | CV + Gemini | 개선 |
+|---|---:|---:|---:|
+| API 호출 횟수 | 29회 | 5회 | **▼83%** |
+| 품질 불량 호출 | 9회 | 0회 | **▼100%** |
+| 추정 비용 ($/hr) | $1.50 | $0.26 | **▼83%** |
+| normal-change FP (window=1→5) | 23회 | 2회 | **▼91%** |
+
+> 시뮬레이션 근거: 실촬영 BIOS 22장 품질 통과율 36.4% + histogram-ablation.csv 실측값 적용.
+> 생성 스크립트: `notebooks/run_pipeline_comparison.py`
+
 ### 모듈 4 (비프음, 선택)
 | 파일 | 내용 |
 |---|---|

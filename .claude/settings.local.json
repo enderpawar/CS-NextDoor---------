@@ -18,7 +18,10 @@
       "Bash(grep -oP 'id=\\\\\\\\\\\\\"\"\"\"[0-9]+:[0-9]+\\\\\\\\\\\\\"\"\"\" name=\\\\\\\\\\\\\"\"\"\"[^\\\\\\\\\\\\\"\"\"\"]+\\\\\\\\\\\\\"\"\"\"' \"C:/Users/jinwoo/.claude/projects/C--Users-jinwoo-OneDrive-------CS-NextDoor/7096b601-05bd-47ce-af0b-26764ce928f4/tool-results/mcp-claude_ai_Figma-get_metadata-1774617523137.txt\")",
       "Bash(grep -v 'name=\\\\\\\\\"\"\"\"Container\\\\|name=\\\\\\\\\"\"\"\"Text\\\\|name=\\\\\\\\\"\"\"\"Icon\\\\|name=\\\\\\\\\"\"\"\"Background\\\\|name=\\\\\\\\\"\"\"\"Vector\\\\|name=\\\\\\\\\"\"\"\"Horizontal')",
       "Bash(powershell *)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(powershell.exe -Command \"& 'C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python311\\\\python.exe' -m pip install numpy pandas matplotlib seaborn --quiet\")",
+      "Bash(Select-String -Pattern \"\\(Successfully|already|error|Error\\)\")",
+      "Bash(Select-Object -Last 10)"
     ]
   }
 }

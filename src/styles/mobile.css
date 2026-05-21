@@ -2351,63 +2351,15 @@
   opacity: 1;
 }
 
-/* ── CV Insight 패널 래퍼 — 카메라 뷰 우상단 절대 위치 ──────────────────────── */
+/* ── CV Insight 패널 래퍼 — topbar 바로 아래 우상단 ──────────────────────── */
 .nd-cv-panel-wrapper {
   position: absolute;
-  top: calc(max(env(safe-area-inset-top, 0px), 0.75rem) + 6rem);
+  top: calc(max(env(safe-area-inset-top, 0px), 0.75rem) + 3.6rem);
   right: 0.85rem;
   z-index: 22;
   width: min(205px, calc(100vw - 1.7rem));
   animation: nd-panel-in 0.18s ease;
   transition: width 0.2s, opacity 0.2s;
-}
-
-.nd-cv-panel-toggle {
-  position: absolute;
-  top: 0.6rem;
-  right: 0.6rem;
-  z-index: 18;
-  min-width: 48px;
-  height: 48px;
-  border: 1px solid rgba(90, 129, 250, 0.28);
-  border-radius: 999px;
-  background: rgba(10, 12, 24, 0.78);
-  color: #e2e8f0;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: opacity 0.2s, transform 0.2s, background 0.2s;
-}
-
-.nd-cv-panel-toggle:hover {
-  background: rgba(25, 35, 68, 0.84);
-}
-
-.nd-cv-panel-toggle.is-open {
-  width: 42px;
-  min-width: 42px;
-  height: 42px;
-}
-
-.nd-cv-panel-toggle-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #64748b;
-}
-
-.nd-cv-panel-toggle.ready .nd-cv-panel-toggle-dot {
-  background: #22c55e;
-  box-shadow: 0 0 7px rgba(34, 197, 94, 0.75);
 }
 
 @keyframes nd-panel-in {
@@ -2541,6 +2493,51 @@
   height: 100%;
   border-radius: 2px;
   transition: width 0.4s ease, background 0.4s ease;
+}
+
+/* ── Canny edge 미니 프리뷰 ──────────────────────────────────────────────────── */
+.nd-cv-edge-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+
+.nd-cv-edge-preview-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(148, 163, 184, 0.85);
+  text-transform: uppercase;
+}
+
+.nd-cv-edge-preview-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 18px rgba(45, 212, 191, 0.18);
+}
+
+.nd-cv-edge-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Canny는 이진 그레이스케일 — 시안 톤으로 채색해 "스캐너 뷰" 느낌 강화 */
+  filter: brightness(1.05) contrast(1.05) sepia(1) hue-rotate(135deg) saturate(4);
+  image-rendering: pixelated;
+}
+
+.nd-cv-edge-preview-empty {
+  font-size: 0.6rem;
+  color: rgba(148, 163, 184, 0.6);
+  letter-spacing: 0.04em;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -2765,8 +2762,7 @@
 }
 
 .nd-ar-guide-frame.detected {
-  border-color: rgba(90, 129, 250, 0.48);
-  animation: nd-ar-frame-settle 1.8s ease-in-out infinite;
+  border-color: rgba(255, 255, 255, 0.34);
 }
 
 .nd-ar-guide-frame.frozen {
@@ -2782,14 +2778,14 @@
 
 .nd-ar-guide-frame.detected::before {
   background:
-    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) left top / 34px 3px no-repeat,
-    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) left top / 3px 34px no-repeat,
-    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) right top / 34px 3px no-repeat,
-    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) right top / 3px 34px no-repeat,
-    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) left bottom / 34px 3px no-repeat,
-    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) left bottom / 3px 34px no-repeat,
-    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) right bottom / 34px 3px no-repeat,
-    linear-gradient(rgba(90, 129, 250, 0.95), rgba(90, 129, 250, 0.95)) right bottom / 3px 34px no-repeat;
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) left top / 34px 3px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) left top / 3px 34px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) right top / 34px 3px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) right top / 3px 34px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) left bottom / 34px 3px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) left bottom / 3px 34px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) right bottom / 34px 3px no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)) right bottom / 3px 34px no-repeat;
 }
 
 .nd-ar-guide-label {
@@ -2831,12 +2827,19 @@
 }
 
 .nd-ar-text-region {
-  fill: rgba(255, 255, 255, 0.03);
-  stroke: rgba(255, 255, 255, 0.18);
-  stroke-width: 1;
+  fill: rgba(45, 212, 191, 0.06);
+  stroke: rgba(45, 212, 191, 0.78);
+  stroke-width: 1.4;
   stroke-linejoin: round;
+  stroke-dasharray: 4 3;
   vector-effect: non-scaling-stroke;
-  animation: nd-ar-appear 0.25s ease;
+  filter: drop-shadow(0 0 2px rgba(45, 212, 191, 0.45));
+  animation: nd-ar-text-scan 1.4s ease-in-out infinite;
+}
+
+@keyframes nd-ar-text-scan {
+  0%, 100% { stroke-opacity: 0.55; }
+  50%      { stroke-opacity: 0.95; }
 }
 
 .nd-ar-target-pointer {
@@ -2845,7 +2848,6 @@
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.9));
-  animation: nd-ar-target-pulse 1.15s ease-in-out infinite;
 }
 
 .nd-ar-target-halo {
@@ -2854,7 +2856,6 @@
   stroke-width: 5;
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 0 16px rgba(34, 197, 94, 0.95));
-  animation: nd-ar-target-halo 1.15s ease-in-out infinite;
 }
 
 .nd-ar-target-region {
@@ -2864,7 +2865,6 @@
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 0 14px rgba(34, 197, 94, 1));
-  animation: nd-ar-target-pulse 1.15s ease-in-out infinite;
 }
 
 .nd-ar-target-label-bg {
@@ -2913,17 +2913,6 @@
 @keyframes nd-ar-frame-settle {
   0%, 100% { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18), 0 0 0 999px rgba(0, 0, 0, 0.08); }
   50% { box-shadow: inset 0 0 0 1px rgba(90, 129, 250, 0.22), 0 0 0 999px rgba(0, 0, 0, 0.06); }
-}
-
-@keyframes nd-ar-target-pulse {
-  0%, 100% {
-    stroke-width: 6;
-    fill-opacity: 0.2;
-  }
-  50% {
-    stroke-width: 10;
-    fill-opacity: 0.34;
-  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -2985,19 +2974,6 @@
 }
 .nd-live-guide-camera-root .nd-cv-status.panel-open {
   background: rgba(90, 129, 250, 0.32);
-}
-
-@keyframes nd-ar-target-halo {
-  0%, 100% {
-    stroke-width: 5;
-    stroke-opacity: 0.95;
-    fill-opacity: 0.08;
-  }
-  50% {
-    stroke-width: 9;
-    stroke-opacity: 0.55;
-    fill-opacity: 0.16;
-  }
 }
 
 .nd-llm-status-strip {
@@ -3167,7 +3143,7 @@
   background: rgba(90, 129, 250, 0.88);
 }
 
-/* 액션 바: 하단 고정 + 다크 반투명 */
+/* 액션 바: 하단 고정 — 배경 없이 촬영 버튼만 노출 */
 .nd-live-guide-camera-root .nd-action-bar {
   position: absolute;
   bottom: 0;
@@ -3175,9 +3151,16 @@
   right: 0;
   z-index: 20;
   padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.5rem);
-  background: rgba(10, 12, 26, 0.80);
-  backdrop-filter: blur(22px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  backdrop-filter: none;
+  border-top: none;
+  box-shadow: none;
+  border-radius: 0;
+  pointer-events: none;
+}
+.nd-live-guide-camera-root .nd-action-bar .nd-action-bar-capture {
+  pointer-events: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 0 3px rgba(255, 255, 255, 0.18);
 }
 .nd-live-guide-camera-root .nd-action-bar-label {
   color: rgba(255, 255, 255, 0.72);

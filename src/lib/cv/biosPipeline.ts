@@ -40,6 +40,9 @@ export function detectBiosVendor(text: string): BiosType | null {
   return null;
 }
 
+/** 4-모서리 검출 후보의 출처 — Gemini 프롬프트에 정면화 신뢰도를 명시할 때 사용 */
+export type QuadSource = 'contour' | 'bright' | 'hough';
+
 export interface BiosPipelineResult {
   rectified:   boolean;    // Homography 정면화 성공 여부
   ocrText:     string;     // Tesseract 전체 텍스트
@@ -53,13 +56,21 @@ export interface BiosPipelineResult {
 export interface BiosGuidePreprocessResult {
   canvas: HTMLCanvasElement;
   rectified: boolean;
+  /** 4 모서리 검출 후보 출처. 정면화 실패 시 null. Gemini 프롬프트에 신뢰도 단서로 노출. */
+  rectificationSource: QuadSource | null;
+  /** 0.0~1.0. 정면화 후보의 통합 점수 (areaRatio + centeredness + aspect + source bonus). */
+  rectificationScore: number;
   textRegionCount: number;
   /** Connected Components 텍스트 후보 영역 (원본 프레임 픽셀 공간) */
   textRegions: BiosTextRegion[];
   processingMs: number;
   /** Hough 검출 4 모서리 좌표 (원본 프레임 픽셀 공간). [tl, tr, br, bl] 순서 */
   corners: number[][] | null;
+  /** Canny edge map을 작은 썸네일(폭 EDGE_PREVIEW_W)로 다운샘플 후 data URL. CV 패널 미니 프리뷰용. */
+  edgeMapDataUrl: string | null;
 }
+
+const EDGE_PREVIEW_W = 144;
 
 export interface BiosTextRegion {
   id: number;
@@ -103,15 +114,19 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
   let homographyInv: any = null;
 
   let detectedCorners: number[][] | null = null;
+  let rectificationSource: QuadSource | null = null;
+  let rectificationScore = 0;
 
   try {
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
     cv.Canny(gray, edges, 35, 120);
     cv.HoughLinesP(edges, lines, 1, Math.PI / 180, HOUGH_VOTE, HOUGH_MIN, HOUGH_GAP);
 
-    const corners = extractQuadCorners(edges, lines, rgba.width, rgba.height);
+    const corners = extractQuadCorners(gray, edges, lines, rgba.width, rgba.height);
     if (corners) {
       detectedCorners = corners.src;   // AR 오버레이용 — 원본 프레임 좌표
+      rectificationSource = corners.source;
+      rectificationScore = corners.score;
       const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.src.flat());
       const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, corners.dst.flat());
       const H = cv.findHomography(srcPts, dstPts, cv.RANSAC, 5.0);
@@ -141,7 +156,6 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
 
     cv.connectedComponentsWithStats(binary, labels, stats, centroids);
     const numLabels: number = labels.rows > 0 ? (stats.rows - 1) : 0;
-    textRegionCount = countTextRegions(stats, numLabels);
     const textRegions = collectTextRegions(
       stats,
       numLabels,
@@ -149,19 +163,45 @@ export function preprocessBiosFrameForGuide(rgba: ImageData): BiosGuidePreproces
       rgba.height,
       homographyInv,
     );
+    textRegionCount = textRegions.length;
 
     const canvas = document.createElement('canvas');
     canvas.width = rgba.width;
     canvas.height = rgba.height;
     cv.imshow(canvas, enhanced);
 
+    // Canny edge map → 작은 썸네일 PNG (CV 패널 미니 프리뷰).
+    // 원본 해상도로 그리지 않고 폭 EDGE_PREVIEW_W로 다운샘플 — 전송/저장 비용 최소화.
+    let edgeMapDataUrl: string | null = null;
+    try {
+      const scale = EDGE_PREVIEW_W / Math.max(1, rgba.width);
+      const previewW = Math.max(1, Math.round(rgba.width * scale));
+      const previewH = Math.max(1, Math.round(rgba.height * scale));
+      const previewMat = new cv.Mat();
+      try {
+        cv.resize(edges, previewMat, new cv.Size(previewW, previewH), 0, 0, cv.INTER_AREA);
+        const previewCanvas = document.createElement('canvas');
+        previewCanvas.width  = previewW;
+        previewCanvas.height = previewH;
+        cv.imshow(previewCanvas, previewMat);
+        edgeMapDataUrl = previewCanvas.toDataURL('image/png');
+      } finally {
+        previewMat.delete();
+      }
+    } catch {
+      edgeMapDataUrl = null;
+    }
+
     return {
       canvas,
       rectified,
+      rectificationSource,
+      rectificationScore,
       textRegionCount,
       textRegions,
       processingMs: performance.now() - t0,
       corners: detectedCorners,
+      edgeMapDataUrl,
     };
   } finally {
     [src, gray, edges, lines, enhanced, binary, labels, stats, centroids].forEach(m => m.delete());
@@ -200,7 +240,7 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
     // ── Step 2: Canny + HoughLinesP → 화면 경계 4 모서리 추출 ───────────────
     cv.Canny(gray, edges, 35, 120);
     cv.HoughLinesP(edges, lines, 1, Math.PI / 180, HOUGH_VOTE, HOUGH_MIN, HOUGH_GAP);
-    const corners = extractQuadCorners(edges, lines, rgba.width, rgba.height);
+    const corners = extractQuadCorners(gray, edges, lines, rgba.width, rgba.height);
 
     // ── Step 3: Homography + warpPerspective — 정면화 ─────────────────────
     if (corners) {
@@ -240,8 +280,8 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
     // ── Step 6: Connected Components — 텍스트 ROI 분리 ──────────────────────
     cv.connectedComponentsWithStats(binary, labels, stats, centroids);
     const numLabels: number = labels.rows > 0 ? (stats.rows - 1) : 0;  // label 0 = background
-    const textRoiCount = countTextRegions(stats, numLabels);
-    void textRoiCount; // ablation 분석용 (현재 OCR 입력 필터링 미구현)
+    const textLineCount = collectTextRegions(stats, numLabels, rgba.width, rgba.height, null).length;
+    void textLineCount; // ablation 분석용 (현재 OCR 입력 필터링 미구현)
 
     // ── Step 7: Tesseract.js OCR ─────────────────────────────────────────────
     // enhanced Mat → off-screen canvas → Tesseract
@@ -280,26 +320,172 @@ export async function runBiosPipeline(rgba: ImageData): Promise<BiosPipelineResu
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+interface QuadCandidate {
+  src: number[][];
+  dst: number[][];
+  source: QuadSource;
+  score: number;
+}
+
 /**
- * HoughLinesP 결과 Mat에서 화면 4 모서리 좌표 추출.
+ * 화면 4 모서리 추출 — 다중 후보 소스 + 통합 스코어링.
  *
- * 알고리즘:
- *   1) 각 라인의 기울기로 horizontal / vertical 분류
- *   2) horizontal은 평균 y, vertical은 평균 x 기준 정렬
- *   3) 가장 위/아래/왼/오른쪽 라인 한 개씩 선택
- *   4) 4 쌍의 라인 교차점을 직선 방정식으로 계산 → tl/tr/br/bl
+ * 후보 소스:
+ *   1) Contour — Canny edge → dilate/close (kernel 7·15) → findContours → approxPolyDP
+ *   2) Bright Region — Otsu threshold → MORPH_CLOSE (kernel 21) → findContours
+ *      모니터 베젤 안쪽이 주변보다 밝은 일반적 BIOS 촬영 환경에서 강건.
+ *   3) Hough Lines — HoughLinesP h/v 분류 → 가장 바깥쪽 4개 교차점
  *
- * 사선으로 비춰진 BIOS 화면(trapezoid)에서도 올바른 모서리를 얻기 위해
- * 좌표 합성(axis-aligned)이 아닌 교차점 계산을 사용한다.
+ * 통합 스코어링 (≈0..1+):
+ *   - areaRatio:   화면 0.25~0.7 사이 가중
+ *   - centeredness: 폴리곤 중심이 프레임 중심에 가까울수록 가산
+ *   - aspect:      0.9~2.2 (4:3, 16:9 범위) 가중
+ *   - sourceBonus: contour > bright > hough (먼저 검출되는 쪽이 보통 더 강건)
+ *
+ * 모든 후보가 임계점 이하면 null 반환 → 정면화 skip, Gemini에 `rectificationSource=null`로 전달.
  */
 function extractQuadCorners(
+  gray: any,
   edges: any,
   lines: any,
   width: number,
   height: number,
+): QuadCandidate | null {
+  const candidates: QuadCandidate[] = [];
+
+  const contourCorners = extractQuadCornersFromContours(edges, width, height);
+  if (contourCorners) {
+    candidates.push({
+      ...contourCorners,
+      source: 'contour',
+      score: scoreQuad(contourCorners.src, width, height) + 0.10,
+    });
+  }
+
+  const brightCorners = extractQuadCornersFromBrightRegion(gray, width, height);
+  if (brightCorners) {
+    candidates.push({
+      ...brightCorners,
+      source: 'bright',
+      score: scoreQuad(brightCorners.src, width, height) + 0.05,
+    });
+  }
+
+  const houghCorners = extractQuadCornersFromLines(lines, width, height);
+  if (houghCorners) {
+    candidates.push({
+      ...houghCorners,
+      source: 'hough',
+      score: scoreQuad(houghCorners.src, width, height),
+    });
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0]!;
+  // 최저 임계값 — 너무 낮은 점수는 잘못된 정면화로 OCR 정확도를 오히려 떨어뜨림.
+  if (best.score < 0.35) return null;
+  return best;
+}
+
+/**
+ * 4 모서리 후보의 통합 점수 0..1.
+ *
+ * 기여:
+ *   - 면적 비율 (target 0.4~0.7): 0..0.35
+ *   - 중심 가까움 (target frame center): 0..0.20
+ *   - aspect 비율 (1.1~2.2 범위): 0..0.20
+ *
+ * 외부 가산 (source bonus)을 더해 최종 비교 점수를 만든다.
+ */
+function scoreQuad(corners: number[][], width: number, height: number): number {
+  const bounds = boundingBox(corners);
+  const area = polygonArea(corners);
+  const frameArea = width * height;
+  const areaRatio = area / frameArea;
+
+  // Area: 좋은 영역 [0.4, 0.7], 양쪽으로 갈수록 감점
+  const areaScore = areaRatio < 0.25 ? Math.max(0, (areaRatio - 0.05) / 0.20) * 0.7
+                  : areaRatio < 0.4 ? 0.7 + (areaRatio - 0.25) / 0.15 * 0.3
+                  : areaRatio <= 0.7 ? 1
+                  : Math.max(0, 1 - (areaRatio - 0.7) / 0.25);
+
+  // 중심도
+  const centerX = bounds.x + bounds.w / 2;
+  const centerY = bounds.y + bounds.h / 2;
+  const dx = (centerX - width / 2) / width;
+  const dy = (centerY - height / 2) / height;
+  const centerScore = Math.max(0, 1 - Math.hypot(dx, dy) * 2.4);
+
+  // Aspect
+  const aspect = bounds.w / Math.max(bounds.h, 1);
+  const aspectScore = aspect < 0.7 ? Math.max(0, aspect / 0.7)
+                    : aspect <= 2.4 ? 1
+                    : Math.max(0, 1 - (aspect - 2.4) / 1.5);
+
+  return areaScore * 0.35 + centerScore * 0.20 + aspectScore * 0.20;
+}
+
+/**
+ * 밝은 영역 기반 4 모서리 검출 (Otsu threshold + Morph close).
+ * BIOS 촬영 환경에서 모니터 베젤 안쪽이 주변보다 밝거나 어두운 대비를 활용.
+ * Canny edge가 텍스트 노이즈에 묻혀 contour를 만들지 못할 때의 보조 후보.
+ */
+function extractQuadCornersFromBrightRegion(
+  gray: any,
+  width: number,
+  height: number,
 ): { src: number[][]; dst: number[][] } | null {
-  return extractQuadCornersFromContours(edges, width, height)
-    ?? extractQuadCornersFromLines(lines, width, height);
+  const binary = new cv.Mat();
+  const closed = new cv.Mat();
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(21, 21));
+
+  try {
+    cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+    cv.morphologyEx(binary, closed, cv.MORPH_CLOSE, kernel);
+    cv.findContours(closed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const frameArea = width * height;
+    let best: { corners: number[][]; area: number } | null = null;
+
+    for (let i = 0; i < contours.size(); i++) {
+      const contour = contours.get(i);
+      try {
+        const area = cv.contourArea(contour);
+        if (area < frameArea * 0.10 || area > frameArea * 0.95) continue;
+        const perimeter = cv.arcLength(contour, true);
+        for (const eps of [0.02, 0.03, 0.045, 0.06]) {
+          const approx = new cv.Mat();
+          try {
+            cv.approxPolyDP(contour, approx, perimeter * eps, true);
+            if (approx.rows !== 4) continue;
+            const corners = matPointsToArray(approx);
+            const result = makeQuadResult(corners, width, height);
+            if (!result) continue;
+            const polyArea = polygonArea(result.src);
+            if (!best || polyArea > best.area) {
+              best = { corners: result.src, area: polyArea };
+            }
+            break;
+          } finally {
+            approx.delete();
+          }
+        }
+      } finally {
+        contour.delete();
+      }
+    }
+
+    return best ? makeQuadResult(best.corners, width, height) : null;
+  } finally {
+    binary.delete();
+    closed.delete();
+    contours.delete();
+    hierarchy.delete();
+    kernel.delete();
+  }
 }
 
 function makeQuadResult(corners: number[][], width: number, height: number): { src: number[][]; dst: number[][] } | null {
@@ -331,20 +517,41 @@ function extractQuadCornersFromContours(
   width: number,
   height: number,
 ): { src: number[][]; dst: number[][] } | null {
+  // 두 가지 morphology kernel을 모두 시도 — BIOS 텍스트는 작은 edge를 다수 만들어
+  // 7px close로는 화면 contour가 끊김. 15px가 더 강건하나 작은 화면은 over-merge 위험.
+  // 둘 다 결과 합치고 unified scoring에 맡긴다.
+  const candidates: { corners: number[][]; score: number }[] = [];
+  for (const kernelSize of [7, 15]) {
+    const found = findContourQuadCandidates(edges, width, height, kernelSize);
+    for (const c of found) candidates.push(c);
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0]!;
+  return makeQuadResult(best.corners, width, height);
+}
+
+/** 단일 morphology kernel 크기에 대한 contour 후보 추출 */
+function findContourQuadCandidates(
+  edges: any,
+  width: number,
+  height: number,
+  kernelSize: number,
+): { corners: number[][]; score: number }[] {
   const work = new cv.Mat();
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
-  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
+  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(kernelSize, kernelSize));
+
+  const candidates: { corners: number[][]; score: number }[] = [];
 
   try {
     cv.dilate(edges, work, kernel, new cv.Point(-1, -1), 1);
     cv.morphologyEx(work, work, cv.MORPH_CLOSE, kernel);
     cv.findContours(work, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-    let best: { corners: number[][]; score: number } | null = null;
     const frameArea = width * height;
-    const centerX = width / 2;
-    const centerY = height / 2;
 
     for (let i = 0; i < contours.size(); i++) {
       const contour = contours.get(i);
@@ -363,21 +570,7 @@ function extractQuadCornersFromContours(
             const result = makeQuadResult(corners, width, height);
             if (!result) continue;
 
-            const bounds = boundingBox(result.src);
-            const quadCenterX = bounds.x + bounds.w / 2;
-            const quadCenterY = bounds.y + bounds.h / 2;
-            const centerPenalty = Math.hypot(
-              (quadCenterX - centerX) / width,
-              (quadCenterY - centerY) / height,
-            );
-            const areaRatio = polygonArea(result.src) / frameArea;
-            const aspect = Math.max(bounds.w / Math.max(bounds.h, 1), bounds.h / Math.max(bounds.w, 1));
-            const aspectPenalty = aspect > 3.2 ? (aspect - 3.2) * 0.12 : 0;
-            const score = areaRatio - centerPenalty * 0.28 - aspectPenalty;
-
-            if (!best || score > best.score) {
-              best = { corners: result.src, score };
-            }
+            candidates.push({ corners: result.src, score: scoreQuad(result.src, width, height) });
           } finally {
             approx.delete();
           }
@@ -387,7 +580,7 @@ function extractQuadCornersFromContours(
       }
     }
 
-    return best ? makeQuadResult(best.corners, width, height) : null;
+    return candidates;
   } finally {
     work.delete();
     contours.delete();
@@ -566,17 +759,120 @@ function lineIntersect(l1: number[], l2: number[]): number[] | null {
   ];
 }
 
-/** Connected Components에서 면적 MIN_CC_AREA 이상인 텍스트 ROI 수 반환 */
-function countTextRegions(stats: any, numLabels: number): number {
-  let count = 0;
-  for (let i = 1; i <= numLabels; i++) {
-    const area: number = stats.intAt(i, cv.CC_STAT_AREA);
-    if (area >= MIN_CC_AREA) count++;
-  }
-  return count;
+interface GlyphBox { x: number; y: number; w: number; h: number; area: number; }
+
+/**
+ * 글리프 후보로 적합한 single CC인지 검사 (line clustering 전 1차 필터).
+ *
+ * 목적: 425개에 달하던 raw CC 후보를 글자 크기/모양에 맞는 ~50~150개로 줄여
+ *   다음 단계의 라인 클러스터링 비용·노이즈 감소.
+ *
+ * 거부:
+ *   - 너무 작은 점/잡음   (h, w, area 하한)
+ *   - 너무 큰 블롭        (화면 면적의 4% 이상 — 보더/배경 ROI)
+ *   - 가로 줄·세로 줄     (극단적 aspect 비율)
+ *   - 텍스트보다 너무 옅거나 진한 영역 (density)
+ */
+function isLikelyGlyphComponent(
+  g: GlyphBox,
+  frameW: number,
+  frameH: number,
+): boolean {
+  if (g.area < Math.max(MIN_CC_AREA / 4, frameW * frameH * 0.0000125)) return false;
+  if (g.w < 2 || g.h < 4) return false;
+  if (g.h < frameH * 0.010 || g.h > frameH * 0.08) return false;
+  if (g.w > frameW * 0.5) return false;
+  if (g.area > frameW * frameH * 0.04) return false;
+
+  const ratio = g.w / Math.max(g.h, 1);
+  if (ratio > 14) return false;          // 가로 줄
+  const density = g.area / Math.max(g.w * g.h, 1);
+  if (density < 0.08 || density > 0.97) return false;
+  return true;
 }
 
-/** Connected Components 결과에서 AR 오버레이용 텍스트 후보 폴리곤 추출 */
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid]! : ((sorted[mid - 1]! + sorted[mid]!) / 2);
+}
+
+interface LineSegment { x: number; y: number; w: number; h: number; glyphCount: number; }
+
+/**
+ * 글리프 후보를 y-band 기준으로 라인 클러스터로 묶고, 라인 내 horizontal gap으로 segment 분할.
+ *
+ * 알고리즘:
+ *   1) center-y로 정렬 후 greedy 클러스터링 (last cluster의 mean center-y와 비교).
+ *   2) 라인 내에서 x로 정렬 후 인접 글리프 간 gap > median(width)*3.2 또는 line-height*2.4 이면 segment 분할.
+ *   3) segment 별 bbox 병합 → line-level 박스.
+ *
+ * "Boot Option #1   [Enabled]" 같은 라벨·값 페어가 같은 줄에 있을 때
+ * 둘은 클릭 단위가 다르므로 별도 segment로 분리되어야 한다.
+ */
+function clusterGlyphsIntoLines(glyphs: GlyphBox[]): LineSegment[] {
+  if (!glyphs.length) return [];
+
+  const sorted = [...glyphs].sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2));
+  const lines: { centerY: number; meanH: number; members: GlyphBox[] }[] = [];
+
+  for (const g of sorted) {
+    const cy = g.y + g.h / 2;
+    const last = lines[lines.length - 1];
+    const tolerance = Math.max(4, (last?.meanH ?? g.h) * 0.55);
+    if (last && Math.abs(cy - last.centerY) <= tolerance) {
+      last.members.push(g);
+      const n = last.members.length;
+      last.centerY = (last.centerY * (n - 1) + cy) / n;
+      last.meanH = (last.meanH * (n - 1) + g.h) / n;
+    } else {
+      lines.push({ centerY: cy, meanH: g.h, members: [g] });
+    }
+  }
+
+  const segments: LineSegment[] = [];
+  for (const line of lines) {
+    const members = [...line.members].sort((a, b) => a.x - b.x);
+    if (!members.length) continue;
+    const medianW = median(members.map(m => m.w));
+    const gapThreshold = Math.max(medianW * 3.2, line.meanH * 2.4);
+
+    let current: GlyphBox[] = [];
+    const flush = () => {
+      if (current.length < 2) {
+        current = [];
+        return;
+      }
+      const x0 = Math.min(...current.map(c => c.x));
+      const y0 = Math.min(...current.map(c => c.y));
+      const x1 = Math.max(...current.map(c => c.x + c.w));
+      const y1 = Math.max(...current.map(c => c.y + c.h));
+      segments.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0, glyphCount: current.length });
+      current = [];
+    };
+
+    for (const m of members) {
+      if (!current.length) { current.push(m); continue; }
+      const prev = current[current.length - 1]!;
+      const gap = m.x - (prev.x + prev.w);
+      if (gap > gapThreshold) flush();
+      current.push(m);
+    }
+    flush();
+  }
+
+  return segments;
+}
+
+/**
+ * Connected Components 결과를 글리프 → 라인 segment로 묶어 AR 오버레이/Gemini 매칭용 박스 추출.
+ *
+ * 결과:
+ *   - 최대 30개 line-level 후보 (이전: 8개 raw CC) — Gemini가 normalized bbox로 직접 지목 가능.
+ *   - 단일 문자/잡음 거부 (segment 당 ≥ 2 글리프, w >= 1.5*h, w <= frame*0.85)
+ *   - reading order(top→bottom, left→right) 정렬.
+ */
 function collectTextRegions(
   stats: any,
   numLabels: number,
@@ -584,7 +880,7 @@ function collectTextRegions(
   height: number,
   homographyInv: any | null,
 ): BiosTextRegion[] {
-  const candidates: BiosTextRegion[] = [];
+  const glyphs: GlyphBox[] = [];
 
   for (let i = 1; i <= numLabels; i++) {
     const x: number = stats.intAt(i, cv.CC_STAT_LEFT);
@@ -592,48 +888,44 @@ function collectTextRegions(
     const w: number = stats.intAt(i, cv.CC_STAT_WIDTH);
     const h: number = stats.intAt(i, cv.CC_STAT_HEIGHT);
     const area: number = stats.intAt(i, cv.CC_STAT_AREA);
+    const candidate: GlyphBox = { x, y, w, h, area };
+    if (!isLikelyGlyphComponent(candidate, width, height)) continue;
+    glyphs.push(candidate);
+  }
 
-    if (!isLikelyTextRegion({ w, h, area, width, height })) continue;
+  const segments = clusterGlyphsIntoLines(glyphs);
+  const lines: BiosTextRegion[] = [];
+
+  segments.forEach((seg, idx) => {
+    // 라인 단위 후처리 필터
+    if (seg.w < seg.h * 1.5) return;            // 거의 정사각형 → 라인이 아님 (아이콘/번호)
+    if (seg.w > width * 0.85) return;            // 화면 전체 가로지름 → 보더/스트라이프 잡음
+    if (seg.h < height * 0.010) return;          // 너무 얇음
+    if (seg.h > height * 0.10) return;           // 너무 큼 (라벨 아닌 큰 블롭 모임)
+    if (seg.glyphCount < 2) return;
 
     const rectPoints: number[][] = [
-      [x, y],
-      [x + w, y],
-      [x + w, y + h],
-      [x, y + h],
+      [seg.x, seg.y],
+      [seg.x + seg.w, seg.y],
+      [seg.x + seg.w, seg.y + seg.h],
+      [seg.x, seg.y + seg.h],
     ];
     const points = homographyInv
       ? rectPoints.map(point => mapPointByHomography(point[0] ?? 0, point[1] ?? 0, homographyInv))
       : rectPoints;
 
-    candidates.push({ id: i, area, points });
-  }
+    lines.push({ id: idx + 1, area: seg.w * seg.h, points });
+  });
 
-  return candidates
-    .sort((a, b) => b.area - a.area)
-    .slice(0, 8);
-}
-
-function isLikelyTextRegion({
-  w,
-  h,
-  area,
-  width,
-  height,
-}: {
-  w: number;
-  h: number;
-  area: number;
-  width: number;
-  height: number;
-}): boolean {
-  if (area < Math.max(MIN_CC_AREA, width * height * 0.000025)) return false;
-  if (w < 10 || h < 6) return false;
-  if (w > width * 0.55 || h > height * 0.12) return false;
-  if (h < height * 0.008 || h > height * 0.09) return false;
-
-  const ratio = w / Math.max(h, 1);
-  const density = area / Math.max(w * h, 1);
-  return ratio >= 0.8 && ratio <= 16 && density >= 0.08 && density <= 0.85;
+  // reading order: top → bottom, 같은 y-band면 left → right
+  return lines
+    .sort((a, b) => {
+      const ay = a.points[0]?.[1] ?? 0;
+      const by = b.points[0]?.[1] ?? 0;
+      if (Math.abs(ay - by) > 12) return ay - by;
+      return (a.points[0]?.[0] ?? 0) - (b.points[0]?.[0] ?? 0);
+    })
+    .slice(0, 30);
 }
 
 function mapPointByHomography(x: number, y: number, hInv: any): number[] {

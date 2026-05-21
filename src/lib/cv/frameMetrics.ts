@@ -32,24 +32,18 @@ function lumaAt(frame: CvFrameInput, x: number, y: number): number {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 }
 
-function mean(values: number[]): number {
-  if (values.length === 0) return 0;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
+function createHistogram(bins: number): number[] {
+  return Array.from({ length: bins }, () => 0);
 }
 
-function variance(values: number[], center = mean(values)): number {
-  if (values.length === 0) return 0;
-  return values.reduce((sum, value) => sum + (value - center) ** 2, 0) / values.length;
+function normalizeHistogram(histogram: number[], total: number): number[] {
+  const divisor = total || 1;
+  return histogram.map(count => count / divisor);
 }
 
-function buildHistogram(lumas: number[], bins: number): number[] {
-  const histogram = Array.from({ length: bins }, () => 0);
-  for (const luma of lumas) {
-    const bucket = Math.min(bins - 1, Math.floor(clamp01(luma) * bins));
-    histogram[bucket] = (histogram[bucket] ?? 0) + 1;
-  }
-  const total = lumas.length || 1;
-  return histogram.map(count => count / total);
+function addHistogramSample(histogram: number[], bins: number, luma: number): void {
+  const bucket = Math.min(bins - 1, Math.floor(clamp01(luma) * bins));
+  histogram[bucket] = (histogram[bucket] ?? 0) + 1;
 }
 
 export function compareHistograms(a: number[], b: number[]): number {
@@ -92,17 +86,25 @@ export function analyzeFrame(
   validateFrame(frame);
 
   const resolved = { ...DEFAULT_OPTIONS, ...options };
-  const lumas: number[] = [];
-  const laplacianValues: number[] = [];
+  const histogram = createHistogram(resolved.histogramBins);
+  let brightnessSum = 0;
+  let brightnessSquareSum = 0;
+  let laplacianSum = 0;
+  let laplacianSquareSum = 0;
+  let laplacianCount = 0;
   let edgeCount = 0;
   let minX = frame.width;
   let minY = frame.height;
   let maxX = -1;
   let maxY = -1;
+  const pixelCount = frame.width * frame.height;
 
   for (let y = 0; y < frame.height; y += 1) {
     for (let x = 0; x < frame.width; x += 1) {
-      lumas.push(lumaAt(frame, x, y));
+      const luma = lumaAt(frame, x, y);
+      brightnessSum += luma;
+      brightnessSquareSum += luma * luma;
+      addHistogramSample(histogram, resolved.histogramBins, luma);
     }
   }
 
@@ -114,10 +116,12 @@ export function analyzeFrame(
       const top = lumaAt(frame, x, y - 1);
       const bottom = lumaAt(frame, x, y + 1);
       const laplacian = (4 * center - left - right - top - bottom) * 255;
-      laplacianValues.push(laplacian);
+      laplacianSum += laplacian;
+      laplacianSquareSum += laplacian * laplacian;
+      laplacianCount += 1;
 
-      const dx = lumaAt(frame, x + 1, y) - lumaAt(frame, x - 1, y);
-      const dy = lumaAt(frame, x, y + 1) - lumaAt(frame, x, y - 1);
+      const dx = right - left;
+      const dy = bottom - top;
       const gradient = Math.sqrt(dx * dx + dy * dy) * 255;
       if (gradient >= resolved.edgeThreshold) {
         edgeCount += 1;
@@ -129,17 +133,23 @@ export function analyzeFrame(
     }
   }
 
-  const brightnessMean = mean(lumas);
-  const brightnessStdDev = Math.sqrt(variance(lumas, brightnessMean));
-  const laplacianVariance = variance(laplacianValues);
+  const brightnessMean = pixelCount === 0 ? 0 : brightnessSum / pixelCount;
+  const brightnessVariance = pixelCount === 0
+    ? 0
+    : Math.max(0, brightnessSquareSum / pixelCount - brightnessMean ** 2);
+  const brightnessStdDev = Math.sqrt(brightnessVariance);
+  const laplacianMean = laplacianCount === 0 ? 0 : laplacianSum / laplacianCount;
+  const laplacianVariance = laplacianCount === 0
+    ? 0
+    : Math.max(0, laplacianSquareSum / laplacianCount - laplacianMean ** 2);
   const sharpnessScore = clamp01(laplacianVariance / 1600);
   const innerArea = Math.max(1, (frame.width - 2) * (frame.height - 2));
   const edgeDensity = edgeCount / innerArea;
   const coverageRatio = maxX >= minX && maxY >= minY
     ? ((maxX - minX + 1) * (maxY - minY + 1)) / (frame.width * frame.height)
     : 0;
-  const histogram = buildHistogram(lumas, resolved.histogramBins);
-  const histogramSimilarity = previousHistogram ? compareHistograms(histogram, previousHistogram) : undefined;
+  const normalizedHistogram = normalizeHistogram(histogram, pixelCount);
+  const histogramSimilarity = previousHistogram ? compareHistograms(normalizedHistogram, previousHistogram) : undefined;
   const sceneChangeScore = histogramSimilarity === undefined ? undefined : 1 - histogramSimilarity;
 
   const exposureScore = clamp01(1 - Math.abs(brightnessMean - 0.5) / 0.5);
@@ -170,7 +180,7 @@ export function analyzeFrame(
     sharpnessScore,
     edgeDensity,
     coverageRatio,
-    histogram,
+    histogram: normalizedHistogram,
     histogramSimilarity,
     sceneChangeScore,
     qualityScore,
@@ -200,10 +210,14 @@ export function selectTopFrames(
 }
 
 export function summarizeFrameSet(frames: CvFrameInput[], options: CvAnalysisOptions = {}) {
-  const metrics = frames.map((frame, index) => {
-    const previous = index > 0 ? analyzeFrame(frames[index - 1]!, undefined, options).histogram : undefined;
-    return analyzeFrame(frame, previous, options);
-  });
+  const metrics: CvFrameMetrics[] = [];
+  let previousHistogram: number[] | undefined;
+
+  for (const frame of frames) {
+    const metric = analyzeFrame(frame, previousHistogram, options);
+    metrics.push(metric);
+    previousHistogram = metric.histogram;
+  }
 
   const usable = metrics.filter(metric => metric.isUsable);
   const avgQuality = metrics.length === 0
