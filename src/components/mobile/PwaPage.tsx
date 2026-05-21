@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertCircle, Camera, CheckCircle2, CircleHelp, Cpu, FileImage, History, ImagePlus, Keyboard, Mic, Monitor, Power, Sparkles,
+  AlertCircle, Camera, CheckCircle2, Cpu, FileImage, History, ImagePlus, Keyboard, Mic, Monitor, Power, Sparkles,
   ArrowLeft, ArrowRight, Trash2, Wrench,
 } from 'lucide-react';
 import type { GuideContext } from '../../types';
@@ -200,15 +200,16 @@ const PROBLEM_OPTIONS: ProblemOption[] = [
     context: 'HW_REPAIR_RAM',
     question: '본체 내부 상태를 확인하고 싶어요. RAM과 주요 부품을 안전하게 점검하도록 안내해주세요.',
   },
-  {
-    id: 'unknown',
-    icon: <CircleHelp size={20}/>,
-    title: '잘 모르겠어요',
-    sub: '화면 단서부터 보고 같이 분류',
-    context: 'GENERAL',
-    question: '',
-  },
 ];
+
+const DEFAULT_CAMERA_OPTION: ProblemOption = {
+  id: 'default-camera',
+  icon: <Camera size={20}/>,
+  title: '화면부터 보기',
+  sub: '화면 단서부터 보고 같이 분류',
+  context: 'GENERAL',
+  question: '',
+};
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
@@ -226,7 +227,6 @@ export default function PwaPage({ isStandalone }: Props) {
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [symptomText, setSymptomText] = useState('');
   const [initialGuideQuestion, setInitialGuideQuestion] = useState('');
-  const [bottomDockOffset, setBottomDockOffset] = useState(0);
   const homeGalleryInputRef = useRef<HTMLInputElement>(null);
   const historyIndexRef = useRef(0);
   const viewRef = useRef<PwaView>(view);
@@ -237,30 +237,29 @@ export default function PwaPage({ isStandalone }: Props) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    document.documentElement.classList.add('nd-pwa-viewport-lock');
+    document.body.classList.add('nd-pwa-viewport-lock');
+
     const viewport = window.visualViewport;
-    const isIosLike = /iPad|iPhone|iPod/.test(window.navigator.userAgent)
-      || (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
-    const minBrowserOffset = !isStandalone && isIosLike ? 22 : 0;
 
-    if (!viewport) {
-      setBottomDockOffset(minBrowserOffset);
-      return;
-    }
-
-    const updateBottomDockOffset = () => {
-      const occludedBottom = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-      setBottomDockOffset(Math.round(Math.max(occludedBottom, minBrowserOffset)));
+    const updateAppHeight = () => {
+      const height = viewport?.height || window.innerHeight;
+      document.documentElement.style.setProperty('--nd-pwa-app-height', `${Math.round(height)}px`);
     };
 
-    updateBottomDockOffset();
-    viewport.addEventListener('resize', updateBottomDockOffset);
-    viewport.addEventListener('scroll', updateBottomDockOffset);
-    window.addEventListener('orientationchange', updateBottomDockOffset);
+    updateAppHeight();
+    viewport?.addEventListener('resize', updateAppHeight);
+    viewport?.addEventListener('scroll', updateAppHeight);
+    window.addEventListener('resize', updateAppHeight);
+    window.addEventListener('orientationchange', updateAppHeight);
 
     return () => {
-      viewport.removeEventListener('resize', updateBottomDockOffset);
-      viewport.removeEventListener('scroll', updateBottomDockOffset);
-      window.removeEventListener('orientationchange', updateBottomDockOffset);
+      viewport?.removeEventListener('resize', updateAppHeight);
+      viewport?.removeEventListener('scroll', updateAppHeight);
+      window.removeEventListener('resize', updateAppHeight);
+      window.removeEventListener('orientationchange', updateAppHeight);
+      document.documentElement.classList.remove('nd-pwa-viewport-lock');
+      document.body.classList.remove('nd-pwa-viewport-lock');
     };
   }, [isStandalone]);
 
@@ -365,7 +364,7 @@ export default function PwaPage({ isStandalone }: Props) {
 
   const startGalleryGuide = useCallback(() => {
     const trimmed = symptomText.trim();
-    setSelectedCtx(trimmed ? inferGuideContextFromText(trimmed) : PROBLEM_OPTIONS[4]!.context);
+    setSelectedCtx(trimmed ? inferGuideContextFromText(trimmed) : DEFAULT_CAMERA_OPTION.context);
     setInitialGuideQuestion(trimmed);
     setGuideInputMode('gallery');
     setInitialGalleryFiles(galleryFiles);
@@ -388,7 +387,7 @@ export default function PwaPage({ isStandalone }: Props) {
   // ── Screen 01: 온보딩 ─────────────────────────────────────────────────────
   if (view === 'onboarding') {
     return (
-      <div style={{ minHeight: '100dvh', position: 'relative', overflow: 'hidden', background: `linear-gradient(180deg, ${C.brandFaint} 0%, ${C.surface} 60%)`, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
+      <div className="nd-pwa-onboarding-page" style={{ background: `linear-gradient(180deg, ${C.brandFaint} 0%, ${C.surface} 60%)`, color: C.ink }}>
         {/* deco blobs */}
         <div style={{ position: 'absolute', top: -120, right: -80, width: 320, height: 320, borderRadius: '50%', background: C.brand, opacity: 0.08, filter: 'blur(40px)', pointerEvents: 'none' }}/>
         <div style={{ position: 'absolute', top: 180, left: -100, width: 240, height: 240, borderRadius: '50%', background: C.accent, opacity: 0.10, filter: 'blur(50px)', pointerEvents: 'none' }}/>
@@ -401,7 +400,7 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
 
         {/* 히어로 */}
-        <div style={{ padding: 'clamp(18px,5dvh,32px) 24px 0', display: 'flex', flexDirection: 'column', gap: 18, flex: 1, minHeight: 0 }}>
+        <div className="nd-pwa-onboarding-hero">
           <AppLogo size={72}/>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: C.brandSoft, color: C.brand, fontSize: 12.5, fontWeight: 700, letterSpacing: -0.2, marginBottom: 14 }}>
@@ -420,7 +419,7 @@ export default function PwaPage({ isStandalone }: Props) {
           </div>
 
           {/* 피처 행 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 'auto', paddingBottom: 'clamp(132px,22dvh,166px)' }}>
+          <div className="nd-pwa-onboarding-features">
             <FeatureRow icon={<Camera size={20}/>}   title="카메라로 PC 화면 진단"    sub="BIOS · 에러 메시지 · 부팅 화면"/>
             <FeatureRow icon={<Mic size={20}/>}      title="비프음으로 하드웨어 진단" sub="삐 — 삐삐 패턴을 인식해요"/>
             <FeatureRow icon={<Sparkles size={20}/>} title="증상 단서를 모아 안내해요" sub="처음 보는 화면도 단계별로 확인"/>
@@ -452,7 +451,7 @@ export default function PwaPage({ isStandalone }: Props) {
     };
 
     return (
-      <div style={{ minHeight: '100dvh', height: '100dvh', overflow: 'hidden', background: C.bg, fontFamily: 'Pretendard, system-ui', color: C.ink, display: 'flex', flexDirection: 'column' }}>
+      <div className="nd-pwa-context-page" style={{ background: C.bg, color: C.ink }}>
         <div style={{ height: 'max(env(safe-area-inset-top,0px),16px)', flexShrink: 0 }}/>
 
         {/* 네비 */}
@@ -527,7 +526,7 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
 
         {/* 하단 CTA */}
-        <div style={{ padding: `8px 22px max(env(safe-area-inset-bottom,0px), calc(18px + ${bottomDockOffset}px))`, background: C.bg, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+        <div style={{ padding: '8px 22px max(env(safe-area-inset-bottom,0px), 18px)', background: C.bg, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('live-guide', { replace: true }); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
               ✨ 입력 없이 화면부터 보기
@@ -546,7 +545,7 @@ export default function PwaPage({ isStandalone }: Props) {
     const hasFiles = galleryFiles.length > 0;
 
     return (
-      <div className="nd-pwa-gallery-page" style={{ paddingBottom: `calc(env(safe-area-inset-bottom,0px) + 22px + ${bottomDockOffset}px)` }}>
+      <div className="nd-pwa-gallery-page">
         <div style={{ height: 'max(env(safe-area-inset-top,0px),18px)' }}/>
 
         <div className="nd-pwa-gallery-nav">
@@ -639,7 +638,7 @@ export default function PwaPage({ isStandalone }: Props) {
 
   // ── Screen 02: 문제 선택 홈 ───────────────────────────────────────────────
   return (
-    <div className="nd-pwa-intake-page" style={{ paddingBottom: `calc(env(safe-area-inset-bottom,0px) + 20px + ${bottomDockOffset}px)` }}>
+    <div className="nd-pwa-intake-page">
       <div style={{ height: 'max(env(safe-area-inset-top,0px),16px)', flexShrink: 0 }}/>
 
       {/* 탑바 */}
@@ -704,7 +703,7 @@ export default function PwaPage({ isStandalone }: Props) {
         <button
           type="button"
           className="nd-pwa-primary-start"
-          onClick={() => startGuide(PROBLEM_OPTIONS[4]!)}
+          onClick={() => startGuide(DEFAULT_CAMERA_OPTION)}
         >
           <Camera size={19} aria-hidden="true"/>
           일단 화면부터 보기

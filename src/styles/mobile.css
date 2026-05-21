@@ -9,18 +9,73 @@
   --nd-motion-sheet: 340ms;
   --nd-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --nd-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --nd-pwa-app-height: 100svh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --nd-pwa-app-height: 100dvh;
+  }
+}
+
+.nd-pwa-onboarding-page,
+.nd-pwa-context-page,
+.nd-pwa-intake-page,
+.nd-pwa-gallery-page,
+.nd-live-guide-page,
+.nd-live-guide-camera-root {
+  height: var(--nd-pwa-app-height);
+  max-height: var(--nd-pwa-app-height);
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.nd-pwa-onboarding-page,
+.nd-pwa-context-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  font-family: Pretendard, system-ui, sans-serif;
+}
+
+.nd-pwa-onboarding-hero {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+  padding: clamp(18px, 5svh, 32px) 24px 0;
+}
+
+@supports (height: 100dvh) {
+  .nd-pwa-onboarding-hero {
+    padding-top: clamp(18px, 5dvh, 32px);
+  }
+}
+
+.nd-pwa-onboarding-features {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding-bottom: clamp(132px, 22svh, 166px);
+}
+
+@supports (height: 100dvh) {
+  .nd-pwa-onboarding-features {
+    padding-bottom: clamp(132px, 22dvh, 166px);
+  }
 }
 
 /* ── PWA intake home — 문제 선택 중심 진입면 ─────────────────────────────── */
 .nd-pwa-intake-page {
-  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   color: oklch(0.20 0.02 245);
   background:
     linear-gradient(180deg, oklch(0.975 0.015 245) 0%, oklch(0.988 0.006 240) 42%, #fff 100%);
   font-family: Pretendard, system-ui, sans-serif;
-  overflow-x: hidden;
   animation: nd-page-fade-in var(--nd-motion-base) var(--nd-ease-standard) both;
 }
 
@@ -102,10 +157,12 @@
 
 .nd-pwa-intake-sheet {
   margin-top: auto;
+  min-height: 0;
   padding: 12px 18px 18px;
   border-radius: 28px 28px 0 0;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 -18px 44px rgba(35, 52, 94, 0.10), inset 0 1px 0 oklch(0.94 0.006 245);
+  overflow: hidden;
   animation: nd-sheet-rise var(--nd-motion-sheet) var(--nd-ease-out) 80ms both;
 }
 
@@ -245,9 +302,10 @@
 }
 
 .nd-pwa-intake-assurance {
+  flex-shrink: 0;
   display: grid;
   gap: 8px;
-  padding: 14px 22px 0;
+  padding: 10px 22px max(env(safe-area-inset-bottom, 0px), 8px);
   animation: nd-soft-enter 260ms var(--nd-ease-out) 180ms both;
 }
 
@@ -268,13 +326,11 @@
 
 /* ── PWA gallery intake — 사진/영상 선택 흐름 ───────────────────────────── */
 .nd-pwa-gallery-page {
-  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   color: oklch(0.20 0.02 245);
   background: linear-gradient(180deg, oklch(0.975 0.015 245) 0%, oklch(0.988 0.006 240) 46%, #fff 100%);
   font-family: Pretendard, system-ui, sans-serif;
-  overflow-x: hidden;
   animation: nd-page-fade-in var(--nd-motion-base) var(--nd-ease-standard) both;
 }
 
@@ -348,10 +404,15 @@
 
 .nd-pwa-gallery-panel {
   margin-top: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 16px 18px 18px;
   border-radius: 28px 28px 0 0;
   background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 -18px 44px rgba(35, 52, 94, 0.10), inset 0 1px 0 oklch(0.94 0.006 245);
+  overflow: hidden;
   animation: nd-sheet-rise var(--nd-motion-sheet) var(--nd-ease-out) 80ms both;
 }
 
@@ -483,7 +544,7 @@
 .nd-pwa-gallery-symptom textarea {
   width: 100%;
   min-height: 104px;
-  resize: vertical;
+  resize: none;
   border: 0;
   border-radius: 16px;
   padding: 13px 14px 30px;
@@ -514,6 +575,7 @@
 }
 
 .nd-pwa-gallery-actions {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 0.8fr 1.2fr;
   gap: 10px;
@@ -1121,7 +1183,6 @@
   padding: 1rem;
   max-width: 640px;
   margin: 0 auto;
-  min-height: 100dvh;
   background: var(--color-bg-page, #f8f9fd);
   position: relative;   /* 오버레이(ShootingGuide, 시트 백드롭) 기준점 */
 }
@@ -1135,6 +1196,14 @@
 /* 카메라 화면 — 오버플로 방지 */
 .nd-live-guide-camera-root {
   overflow: hidden;
+}
+
+/* 카메라 모드 활성 시 html/body 스크롤 + 오버스크롤 바운스 차단 */
+html.nd-camera-lock,
+body.nd-camera-lock {
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
 }
 
 .nd-live-guide-topbar {
@@ -2146,7 +2215,8 @@
   inset: 0;
   z-index: 40;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
   padding: 1rem;
   background: rgba(10, 12, 24, 0.58);
   backdrop-filter: blur(8px);
@@ -2155,10 +2225,11 @@
 
 .nd-exit-confirm {
   width: 100%;
+  max-width: 360px;
   border-radius: 22px;
   background: #ffffff;
   padding: 1.25rem;
-  box-shadow: 0 -12px 36px rgba(5, 12, 32, 0.22);
+  box-shadow: 0 18px 44px rgba(5, 12, 32, 0.24);
 }
 
 .nd-exit-confirm h2 {
@@ -2580,6 +2651,10 @@
   cursor: pointer;
   transition: transform var(--nd-motion-fast) var(--nd-ease-standard), background var(--nd-motion-fast);
   min-height: 56px;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .nd-action-bar-btn:active:not(:disabled) {
@@ -2647,6 +2722,19 @@
   position: relative;
   overflow: hidden;
   touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.nd-action-bar-capture *,
+.nd-action-bar-capture *::before,
+.nd-action-bar-capture *::after {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
 }
 
 .nd-action-bar-camera-icon {
@@ -2929,6 +3017,9 @@
   background: #000;
   gap: 0;
   overflow: hidden;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* 카메라: 전체 화면 fill */
@@ -3143,6 +3234,11 @@
   background: rgba(90, 129, 250, 0.88);
 }
 
+/* 갤러리 모드: 액션 바 없을 때 하단에 바로 붙임 */
+.nd-resolution-check.is-bottom-anchored {
+  bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
+}
+
 /* 액션 바: 하단 고정 — 배경 없이 촬영 버튼만 노출 */
 .nd-live-guide-camera-root .nd-action-bar {
   position: absolute;
@@ -3183,8 +3279,9 @@
 @media (max-width: 520px) {
   .nd-pwa-intake-page,
   .nd-pwa-gallery-page {
-    height: 100dvh;
-    min-height: 100dvh;
+    height: var(--nd-pwa-app-height);
+    max-height: var(--nd-pwa-app-height);
+    min-height: 0;
     overflow: hidden;
   }
 
@@ -3217,7 +3314,7 @@
   .nd-pwa-gallery-panel {
     min-height: 0;
     padding: 10px 16px 14px;
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   .nd-pwa-sheet-handle {
@@ -3290,6 +3387,12 @@
 
   .nd-pwa-gallery-list {
     max-height: min(28dvh, 168px);
+  }
+
+  .nd-pwa-gallery-page:focus-within .nd-pwa-gallery-panel {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .nd-pwa-gallery-actions {
@@ -3365,10 +3468,43 @@
 }
 
 @media (max-height: 680px) {
+  .nd-pwa-onboarding-page p {
+    display: none;
+  }
+
+  .nd-pwa-onboarding-hero {
+    gap: 12px;
+    padding-top: 14px;
+  }
+
+  .nd-pwa-onboarding-features {
+    gap: 6px;
+    padding-bottom: 122px;
+  }
+
+  .nd-pwa-onboarding-features > div {
+    padding: 9px 12px !important;
+  }
+
   .nd-pwa-intake-status,
   .nd-pwa-gallery-kicker {
     min-height: 26px;
     font-size: 11.4px;
+  }
+
+  .nd-pwa-intake-hero {
+    padding-top: 12px;
+    padding-bottom: 8px;
+  }
+
+  .nd-pwa-intake-hero h1,
+  .nd-pwa-gallery-hero h1 {
+    font-size: 24px;
+  }
+
+  .nd-pwa-gallery-hero {
+    padding-top: 12px;
+    padding-bottom: 8px;
   }
 
   .nd-pwa-intake-sheet-head span,
@@ -3387,6 +3523,15 @@
 
   .nd-pwa-gallery-drop {
     min-height: 100px;
+  }
+
+  .nd-pwa-gallery-symptom {
+    margin-top: 10px;
+  }
+
+  .nd-pwa-gallery-symptom textarea {
+    min-height: 82px;
+    max-height: 96px;
   }
 
   .nd-pwa-gallery-drop span:last-child {

@@ -1031,7 +1031,13 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         ].filter(Boolean).join(', ');
 
         // 모듈 1: BIOS 전처리 (CLAHE 강화 + Hough 모서리)
-        if (cvReady) {
+        if (isHwRepairContext(context)) {
+          cvSummary = `${cvSummary}, biosPreprocess=skipped, ocrRegions=0`;
+          setBiosCorners(null);
+          setBiosTextRegions([]);
+          setBiosOcrRegions([]);
+          setBiosInsight({ rectified: false, textRegions: 0, processMs: 0 });
+        } else if (cvReady) {
           try {
             const preprocessed = preprocessBiosFrameForGuide(rgba);
             cvSummary = [
@@ -1064,7 +1070,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         }
 
         let galleryOcrRegions: GuideOcrRegion[] = [];
-        if (cvReady) {
+        if (cvReady && !isHwRepairContext(context)) {
           try {
             const ocrResult = await runBiosPipeline(rgba);
             galleryOcrRegions = ocrResult.ocrRegions;
@@ -1227,6 +1233,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         width: canvas.width,
         height: canvas.height,
       });
+      setBiosVideoSize({ w: canvas.width, h: canvas.height });
 
       const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height);
       let base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1] ?? '';
@@ -1239,37 +1246,45 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         `previousActionResult=${actionResult}`,
       ].join(', ');
 
-      try {
-        if (!cvReady) throw new Error('cv not ready');
-        const preprocessed = preprocessBiosFrameForGuide(rgba);
-        setBiosInsight({
-          rectified: preprocessed.rectified,
-          textRegions: preprocessed.textRegionCount,
-          processMs: Math.round(preprocessed.processingMs),
-        });
-        handleBiosOverlay({
-          corners: preprocessed.corners,
-          textRegions: preprocessed.textRegions,
-          edgeMapDataUrl: preprocessed.edgeMapDataUrl,
-          videoW: canvas.width,
-          videoH: canvas.height,
-        });
-        cvSummary = [
-          cvSummary,
-          `biosRectified=${preprocessed.rectified}`,
-          `biosRectSource=${preprocessed.rectificationSource ?? 'none'}`,
-          `biosRectScore=${preprocessed.rectificationScore.toFixed(2)}`,
-          `biosTextRegions=${preprocessed.textRegionCount}`,
-          `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
-        ].join(', ');
-      } catch {
+      if (isHwRepairContext(context)) {
         setBiosCorners(null);
         setBiosTextRegions([]);
-        cvSummary = `${cvSummary}, biosPreprocess=failed`;
+        setBiosOcrRegions([]);
+        setBiosInsight({ rectified: false, textRegions: 0, processMs: 0 });
+        cvSummary = `${cvSummary}, biosPreprocess=skipped, ocrRegions=0`;
+      } else {
+        try {
+          if (!cvReady) throw new Error('cv not ready');
+          const preprocessed = preprocessBiosFrameForGuide(rgba);
+          setBiosInsight({
+            rectified: preprocessed.rectified,
+            textRegions: preprocessed.textRegionCount,
+            processMs: Math.round(preprocessed.processingMs),
+          });
+          handleBiosOverlay({
+            corners: preprocessed.corners,
+            textRegions: preprocessed.textRegions,
+            edgeMapDataUrl: preprocessed.edgeMapDataUrl,
+            videoW: canvas.width,
+            videoH: canvas.height,
+          });
+          cvSummary = [
+            cvSummary,
+            `biosRectified=${preprocessed.rectified}`,
+            `biosRectSource=${preprocessed.rectificationSource ?? 'none'}`,
+            `biosRectScore=${preprocessed.rectificationScore.toFixed(2)}`,
+            `biosTextRegions=${preprocessed.textRegionCount}`,
+            `biosPreprocessMs=${Math.round(preprocessed.processingMs)}`,
+          ].join(', ');
+        } catch {
+          setBiosCorners(null);
+          setBiosTextRegions([]);
+          cvSummary = `${cvSummary}, biosPreprocess=failed`;
+        }
       }
 
       let ocrRegions: GuideOcrRegion[] = [];
-      if (cvReady) {
+      if (cvReady && !isHwRepairContext(context)) {
         const ocrFrame = new ImageData(
           new Uint8ClampedArray(rgba.data),
           rgba.width,
@@ -1314,6 +1329,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     biosOcrRegions,
     setTaskGoal,
     manualCaptureBusy,
+    context,
   ]);
 
   const finishDiagnosticClipCapture = useCallback(async (fallbackToPhoto = true) => {
@@ -1342,6 +1358,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       width: result.width,
       height: result.height,
     });
+    setBiosVideoSize({ w: result.width, h: result.height });
     if (result.ocrRegions) setBiosOcrRegions(result.ocrRegions);
 
     const shouldUseInitialQuestion = !guide.streamText && !!initialQuestionRef.current;
@@ -1381,6 +1398,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     if (clipCaptureState !== 'idle') return;
     if (capturePointerRef.current) return;
 
+    e.preventDefault();
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const pointerState = {
       pointerId: e.pointerId,
@@ -1628,6 +1646,34 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     stream?.getTracks().forEach(t => t.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
     cameraStartingRef.current = false;
+  }, []);
+
+  // ── 뷰포트 스크롤 잠금: 카메라 모드 진입 시 html/body 스크롤 차단 ────────
+  // CSS overscroll-behavior 만으로는 iOS Safari 바운스를 막지 못하므로
+  // touchmove preventDefault()를 직접 호출한다.
+  // 단, 스크롤 가능한 자식 컨테이너(시트·모달) 안에서의 스크롤은 허용.
+  useEffect(() => {
+    document.documentElement.classList.add('nd-camera-lock');
+    document.body.classList.add('nd-camera-lock');
+
+    const preventBounce = (e: TouchEvent) => {
+      let el = e.target as Element | null;
+      while (el && el !== document.documentElement) {
+        const { overflow, overflowY } = getComputedStyle(el);
+        if (/auto|scroll/.test(overflow + overflowY) && el.scrollHeight > el.clientHeight) {
+          return; // 실제로 스크롤 가능한 컨테이너 — 허용
+        }
+        el = el.parentElement;
+      }
+      e.preventDefault();
+    };
+
+    document.addEventListener('touchmove', preventBounce, { passive: false });
+    return () => {
+      document.documentElement.classList.remove('nd-camera-lock');
+      document.body.classList.remove('nd-camera-lock');
+      document.removeEventListener('touchmove', preventBounce);
+    };
   }, []);
 
   // ── 앱 진입 즉시 카메라 시작 + 언마운트 정리 ──────────────────────────────
@@ -2195,43 +2241,75 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       {/* ── AI 안내 + 품질 피드백 (ShootingGuide가 닫혔을 때) ── */}
       {!showShootingGuide && (
         <>
-          {qualityText && (
-            <div className="nd-quality-feedback">{qualityText}</div>
-          )}
-          <GuideBubble
-            text={displayText}
-            isStreaming={guide.isStreaming}
-            captureState={guide.captureState}
-            elapsed={guide.elapsed}
-            staleGuide={guide.staleGuide}
-            compact={hasFrozenFrame || !!activeOcrTarget}
-            targeting={!!activeOcrTarget}
-          />
-          {guide.session?.status === 'ACTIVE' && !activeOcrTarget && (
-            <form className="nd-guide-question-form" onSubmit={handleQuestionSubmit}>
-              <label className="nd-guide-question-label" htmlFor="nd-guide-question-input">
-                질문하기
-              </label>
-              <div className="nd-guide-question-row">
-                <input
-                  id="nd-guide-question-input"
-                  className="nd-guide-question-input"
-                  type="text"
-                  value={questionDraft}
-                  onChange={e => setQuestionDraft(e.target.value)}
-                  placeholder="지금 화면에 대해 물어보세요"
-                  maxLength={160}
-                  disabled={guide.captureState !== 'idle' || guide.session?.status !== 'ACTIVE'}
-                />
-                <button type="submit" className="nd-guide-question-submit" disabled={questionSubmitDisabled}>
-                  질문
-                </button>
-              </div>
-            </form>
+          {/* 카메라 action-done(textarea) 상태에서만 GuideBubble 숨김 — 갤러리는 항상 표시 */}
+          {resolutionStep !== 'action-done' && (
+            <>
+              {qualityText && (
+                <div className="nd-quality-feedback">{qualityText}</div>
+              )}
+              <GuideBubble
+                text={displayText}
+                isStreaming={guide.isStreaming}
+                captureState={guide.captureState}
+                elapsed={guide.elapsed}
+                staleGuide={guide.staleGuide}
+                compact={hasFrozenFrame || !!activeOcrTarget}
+                targeting={!!activeOcrTarget}
+              />
+              {guide.session?.status === 'ACTIVE' && !activeOcrTarget && (
+                <form className="nd-guide-question-form" onSubmit={handleQuestionSubmit}>
+                  <label className="nd-guide-question-label" htmlFor="nd-guide-question-input">
+                    질문하기
+                  </label>
+                  <div className="nd-guide-question-row">
+                    <input
+                      id="nd-guide-question-input"
+                      className="nd-guide-question-input"
+                      type="text"
+                      value={questionDraft}
+                      onChange={e => setQuestionDraft(e.target.value)}
+                      placeholder="지금 화면에 대해 물어보세요"
+                      maxLength={160}
+                      disabled={guide.captureState !== 'idle' || guide.session?.status !== 'ACTIVE'}
+                    />
+                    <button type="submit" className="nd-guide-question-submit" disabled={questionSubmitDisabled}>
+                      질문
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
           )}
           {guide.streamText && guide.session?.status === 'ACTIVE' && !guide.isStreaming && resolutionStep !== 'hidden' && (
-            <div className="nd-resolution-check" role="group" aria-label="조치 결과 확인">
-              {resolutionStep === 'idle' ? (
+            <div
+              className={`nd-resolution-check${initialInputMode === 'gallery' ? ' is-bottom-anchored' : ''}`}
+              role="group"
+              aria-label="조치 결과 확인"
+            >
+              {initialInputMode === 'gallery' ? (
+                // 갤러리 모드: 단계별 사진 추가 흐름
+                <>
+                  <span>안내에 따라 조치한 뒤, 바뀐 화면 사진을 추가해주세요.</span>
+                  <button
+                    type="button"
+                    disabled={resolutionCaptureDisabled}
+                    onClick={() => {
+                      lastActionResultRef.current = 'tried';
+                      setQualityText('');
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    다음 단계 사진 추가
+                  </button>
+                  <button type="button" onClick={handleStillUnresolved} disabled={resolutionCaptureDisabled}>
+                    변화 없어요
+                  </button>
+                  <button type="button" onClick={handleResolvedByUser}>
+                    해결됐어요
+                  </button>
+                </>
+              ) : resolutionStep === 'idle' ? (
+                // 카메라 모드: 기존 흐름
                 <>
                   <span>{resolutionCheckQuestion}</span>
                   <button type="button" onClick={handleActionTried}>
@@ -2282,7 +2360,8 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
       )}
 
       {/* ── Thumb-zone 액션 바 (세션 ACTIVE 후 노출) ── */}
-      {!showShootingGuide && (
+      {/* 갤러리 모드에서 resolution check가 보이는 동안에는 액션 바 숨김 (중복 제거) */}
+      {!showShootingGuide && !(initialInputMode === 'gallery' && resolutionStep !== 'hidden') && (
         <>
           <div className="nd-action-bar" role="toolbar" aria-label="진단 도구">
             {/* 주요: 다음 단계 (수동 캡처) — 중앙 */}
@@ -2305,7 +2384,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             >
               {initialInputMode !== 'gallery' && clipCaptureState === 'recording' && <span className="nd-capture-progress-ring" aria-hidden="true" />}
               {initialInputMode === 'gallery' && guide.captureState === 'idle' && clipCaptureState === 'idle'
-                ? <span className="nd-action-bar-analyzing">사진 선택</span>
+                ? <span className="nd-action-bar-analyzing">{guide.streamText ? '사진 추가' : '사진 선택'}</span>
                 : clipCaptureState === 'recording'
                 ? <span className="nd-action-bar-analyzing">촬영 중</span>
                 : clipCaptureState === 'analyzing' || guide.captureState !== 'idle'
@@ -2314,16 +2393,17 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
               }
             </button>
           </div>
-          <div className="nd-capture-hint">탭: 사진 · 길게: 깜빡임/소리</div>
+          {initialInputMode !== 'gallery' && (
+            <div className="nd-capture-hint">탭: 사진 · 길게: 깜빡임/소리</div>
+          )}
         </>
       )}
 
-      {/* 갤러리 파일 피커 (hidden) — capture 없으면 모바일 갤러리 열림 */}
+      {/* 갤러리 파일 피커 (hidden) — 단계별 1장씩 선택 */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*,video/*"
-        multiple
         style={{ display: 'none' }}
         onChange={handleGallerySelect}
         aria-hidden="true"
