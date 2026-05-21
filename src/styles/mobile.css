@@ -1919,7 +1919,8 @@ body.nd-camera-lock {
 /* ── 컨텍스트 선택 풀업 시트 ──────────────────────────────────────────────────── */
 .nd-context-sheet-backdrop {
   position: fixed;
-  inset: 0;
+  inset: 0 0 auto;
+  height: var(--nd-pwa-app-height, 100svh);
   z-index: 20;
   background: rgba(0, 0, 0, 0.34);
   display: flex;
@@ -1938,7 +1939,7 @@ body.nd-camera-lock {
   border-radius: 24px 24px 0 0;
   padding: 0.75rem 1.25rem 2.5rem;
   width: 100%;
-  max-height: 80dvh;
+  max-height: min(80dvh, calc(var(--nd-pwa-app-height, 100svh) * 0.8));
   overflow-y: auto;
   box-shadow: 0 -8px 32px rgba(38, 56, 138, 0.12);
   animation: nd-sheet-up var(--nd-motion-sheet) var(--nd-ease-out);
@@ -3011,6 +3012,10 @@ body.nd-camera-lock {
 .nd-live-guide-camera-root {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  height: var(--nd-pwa-app-height, 100svh);
+  max-height: var(--nd-pwa-app-height, 100svh);
+  min-height: 0;
   padding: 0;
   max-width: none;
   margin: 0;
@@ -3023,12 +3028,24 @@ body.nd-camera-lock {
 }
 
 /* 카메라: 전체 화면 fill */
+@supports (height: 100dvh) {
+  .nd-live-guide-camera-root {
+    height: var(--nd-pwa-app-height, 100dvh);
+    max-height: var(--nd-pwa-app-height, 100dvh);
+  }
+}
+
 .nd-live-guide-camera-root .nd-camera-wrapper {
   position: absolute;
   inset: 0;
   aspect-ratio: unset;
   border-radius: 0;
   z-index: auto;
+}
+
+.nd-live-guide-camera-root .nd-camera-video,
+.nd-live-guide-camera-root .nd-camera-frozen-frame {
+  object-fit: cover;
 }
 
 /* 상단바: 상단 그라데이션 위에 플로팅 */
@@ -3211,6 +3228,14 @@ body.nd-camera-lock {
   min-width: 0;
   flex: 1;
   line-height: 1.25;
+}
+
+.nd-resolution-check.is-reporting {
+  justify-content: flex-end;
+}
+
+.nd-resolution-check.is-reporting span {
+  flex: 1 1 100%;
 }
 
 .nd-resolution-check button {
@@ -3539,7 +3564,7 @@ body.nd-camera-lock {
   }
 
   .nd-context-sheet {
-    max-height: 86dvh;
+    max-height: min(86dvh, calc(var(--nd-pwa-app-height, 100svh) * 0.86));
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
   }
 }

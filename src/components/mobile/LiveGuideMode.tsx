@@ -33,7 +33,6 @@ import GuideContextSelector                  from './GuideContextSelector';
 import GoalInputSheet                        from './GoalInputSheet';
 import GuideBubble                           from './GuideBubble';
 import ShootingGuide                         from './ShootingGuide';
-import CvInsightPanel                        from './CvInsightPanel';
 import type { GuideArTarget, GuideContext, BiosType, GuideOcrRegion, CvFrameInput } from '../../types';
 import { isHwRepairContext } from '../../types';
 import { compareHist }                       from '../../lib/cv/changeDetection';
@@ -65,8 +64,14 @@ const SHOW_QUAD_DEBUG_OVERLAY = false;
 const LIVE_OCR_OVERLAY_INTERVAL_MS = 900;
 const GUIDE_FRAME_WIDTH_RATIO = 0.82;
 const TEXT_REGION_TRACK_LIMIT = 10;
-const TEXT_REGION_SMOOTHING_ALPHA = 0.28;
+// EMA smoothing: 0.28→0.12 — 0.28은 CC 노이즈가 매 프레임 28%씩 반영돼 잔떨림 누적.
+// 0.12로 낮추면 새 측정값은 12%만 반영, 88%는 직전 위치 유지 → 정지 화면에서 시각적 락.
+const TEXT_REGION_SMOOTHING_ALPHA = 0.12;
 const TEXT_REGION_LOCK_MAX_MISSES = 10;
+// 렌더 좌표 양자화 픽셀. 이 미만 변화는 화면에 표시 안 됨 → 서브픽셀 떨림 차단.
+const TEXT_REGION_SNAP_PX = 4;
+// 매칭된 corner가 직전 corner와 이 픽셀 이내면 직전 위치 유지(dead-zone). EMA 잔떨림 0 처리.
+const TEXT_REGION_DEAD_ZONE_PX = 2;
 const GALLERY_VIDEO_MAX_DURATION_SEC = 15;
 const GALLERY_VIDEO_MAX_SIZE_BYTES = 50 * 1024 * 1024;
 const GALLERY_VIDEO_SAMPLE_FPS = 4;
@@ -406,9 +411,17 @@ function smoothTextRegionPoints(
   return next.map((point, index) => {
     const prevPoint = previous[index];
     if (!prevPoint) return point;
+    const px = prevPoint[0] ?? 0;
+    const py = prevPoint[1] ?? 0;
+    const nx = point[0] ?? 0;
+    const ny = point[1] ?? 0;
+    // Dead-zone: 2px 이내 변화는 노이즈로 간주, 직전 좌표 그대로 사용.
+    // EMA만 사용하면 12%×N프레임 누적으로 천천히 드리프트하는 현상이 발생.
+    const dx = Math.abs(nx - px);
+    const dy = Math.abs(ny - py);
     return [
-      (prevPoint[0] ?? 0) * (1 - alpha) + (point[0] ?? 0) * alpha,
-      (prevPoint[1] ?? 0) * (1 - alpha) + (point[1] ?? 0) * alpha,
+      dx < TEXT_REGION_DEAD_ZONE_PX ? px : px * (1 - alpha) + nx * alpha,
+      dy < TEXT_REGION_DEAD_ZONE_PX ? py : py * (1 - alpha) + ny * alpha,
     ];
   });
 }
@@ -737,13 +750,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   // CV Insight 패널 상태 (Task 3)
   // 기본값 true: CV 처리 시각화가 본 앱의 차별 포인트이므로 첫 진입 시 노출.
   // 사용자가 명시적으로 '0'을 저장한 경우만 닫힘 — 토글 누른 사용자 의사 존중.
-  const [cvPanelOpen,   setCvPanelOpen]   = useState(() => {
-    try {
-      return localStorage.getItem('nd-cv-panel-open') !== '0';
-    } catch {
-      return true;
-    }
-  });
   const [cvMetrics,     setCvMetrics]     = useState<CvFrameInsightMetrics | null>(null);
   const [biosInsight,   setBiosInsight]   = useState<{ rectified: boolean; textRegions: number; processMs: number } | null>(null);
   const [edgeMapDataUrl, setEdgeMapDataUrl] = useState<string | null>(null);
@@ -919,12 +925,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     || clipCaptureState !== 'idle'
     || guide.session?.status !== 'ACTIVE'
     || !questionDraft.trim();
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('nd-cv-panel-open', cvPanelOpen ? '1' : '0');
-    } catch {}
-  }, [cvPanelOpen]);
 
   // ── 갤러리 이미지/짧은 동영상 업로드 → CV 전처리 → Gemini 전송 ───────────
   const processGalleryFile = useCallback(
@@ -2100,18 +2100,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             </>
           )}
         </button>
-        {!goalSheetOpen && (
-          <button
-            type="button"
-            className={`nd-cv-status${cvReady ? ' ready' : ''}${cvPanelOpen ? ' panel-open' : ''}`}
-            title={cvPanelOpen ? '화면 인식 정보 닫기' : '화면 인식 정보 보기'}
-            aria-label={cvPanelOpen ? '화면 인식 정보 닫기' : '화면 인식 정보 보기'}
-            aria-pressed={cvPanelOpen}
-            onClick={() => setCvPanelOpen(v => !v)}
-          >
-            {cvReady ? '🔬' : '⌛'}
-          </button>
-        )}
       </div>
       {guide.llmMode === 'mock' && (
         <div
@@ -2159,8 +2147,9 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
         </div>
 
         {/* Task 7: AR 오버레이 — Hough 모서리 + 클릭 대상 OCR 타깃.
-            CC 후보는 디버그 데이터로만 유지하고 기본 화면에는 렌더하지 않음.
-            viewBox + preserveAspectRatio="xMidYMid slice" = CSS object-fit:cover와 동일 매핑 */}
+            viewBox + preserveAspectRatio="xMidYMid slice" = CSS object-fit:cover와 동일 매핑.
+            video도 object-fit:cover이므로 둘이 같은 cover 매핑이어야 박스가 텍스트 위에 정확히 놓임.
+            'meet'으로 바꾸면 비디오는 cover로 잘리지만 SVG는 contain으로 letterbox되어 드리프트. */}
         {biosVideoSize && ((SHOW_QUAD_DEBUG_OVERLAY && biosCorners) || visibleTextRegions.length > 0 || activeOcrTarget) && (
           <svg
             className="nd-ar-overlay"
@@ -2179,13 +2168,32 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
                 ))}
               </>
             )}
-            {visibleTextRegions.map(region => (
-              <polygon
-                key={region.id}
-                points={region.points.map(point => `${point[0] ?? 0},${point[1] ?? 0}`).join(' ')}
-                className="nd-ar-text-region"
-              />
-            ))}
+            {visibleTextRegions.map(region => {
+              // homographyInv로 매핑된 quad는 카메라 각도/Hough 노이즈로 사다리꼴이 됨.
+              // 평면 화면에서도 비뚤어 보이지 않도록 axis-aligned bbox로 렌더하고,
+              // 좌표를 SNAP_PX(4px) 그리드로 양자화 — 서브픽셀 떨림을 시각적으로 0 처리.
+              const xs = region.points.map(point => point[0] ?? 0);
+              const ys = region.points.map(point => point[1] ?? 0);
+              const xMin = Math.min(...xs);
+              const yMin = Math.min(...ys);
+              const xMax = Math.max(...xs);
+              const yMax = Math.max(...ys);
+              const snap = (v: number) => Math.round(v / TEXT_REGION_SNAP_PX) * TEXT_REGION_SNAP_PX;
+              const sx = snap(xMin);
+              const sy = snap(yMin);
+              const sw = Math.max(0, snap(xMax) - sx);
+              const sh = Math.max(0, snap(yMax) - sy);
+              return (
+                <rect
+                  key={region.id}
+                  x={sx}
+                  y={sy}
+                  width={sw}
+                  height={sh}
+                  className="nd-ar-text-region"
+                />
+              );
+            })}
             {activeOcrTarget && (
               <g className={`nd-ar-selected-target${isActionMode ? ' is-action' : ''}`}>
                 <line
@@ -2225,17 +2233,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           </svg>
         )}
 
-        {/* CV Insight 패널 — 카메라 우상단 오버레이 (goalSheet 열리면 숨김) */}
-        {cvPanelOpen && !goalSheetOpen && (
-          <div className="nd-cv-panel-wrapper">
-            <CvInsightPanel
-              metrics={cvMetrics}
-              bios={biosInsight}
-              cvReady={cvReady}
-              edgeMapDataUrl={edgeMapDataUrl}
-            />
-          </div>
-        )}
       </div>
 
       {/* ── AI 안내 + 품질 피드백 (ShootingGuide가 닫혔을 때) ── */}
@@ -2282,7 +2279,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           )}
           {guide.streamText && guide.session?.status === 'ACTIVE' && !guide.isStreaming && resolutionStep !== 'hidden' && (
             <div
-              className={`nd-resolution-check${initialInputMode === 'gallery' ? ' is-bottom-anchored' : ''}`}
+              className={`nd-resolution-check${initialInputMode === 'gallery' ? ' is-bottom-anchored' : ''}${resolutionStep !== 'idle' ? ' is-reporting' : ''}`}
               role="group"
               aria-label="조치 결과 확인"
             >

@@ -257,6 +257,13 @@ public class GeminiService {
     }
 
     /**
+     * 연결 테스트 — 최소 프롬프트로 API 정상 동작 확인
+     */
+    public String ping() {
+        return callGemini(List.of(Map.of("text", "Reply with exactly: pong")));
+    }
+
+    /**
      * 라이브 가이드 모드 — 화면 이미지 + 프롬프트 → 안내 텍스트 (단순 텍스트 반환)
      */
     public String generateGuideResponse(String prompt, String frameBase64) {

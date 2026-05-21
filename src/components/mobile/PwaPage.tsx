@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertCircle, Camera, CheckCircle2, Cpu, FileImage, History, ImagePlus, Keyboard, Mic, Monitor, Power, Sparkles,
+  AlertCircle, Camera, CheckCircle2, Cpu, FileImage, ImagePlus, Keyboard, Mic, Monitor, Power, Sparkles,
   ArrowLeft, ArrowRight, Trash2, Wrench,
 } from 'lucide-react';
 import type { GuideContext } from '../../types';
@@ -242,7 +242,15 @@ export default function PwaPage({ isStandalone }: Props) {
 
     const viewport = window.visualViewport;
 
+    const isTextInputFocused = () => {
+      const active = document.activeElement;
+      return active instanceof HTMLInputElement
+        || active instanceof HTMLTextAreaElement
+        || active instanceof HTMLSelectElement;
+    };
+
     const updateAppHeight = () => {
+      if (isTextInputFocused()) return;
       const height = viewport?.height || window.innerHeight;
       document.documentElement.style.setProperty('--nd-pwa-app-height', `${Math.round(height)}px`);
     };
@@ -252,12 +260,14 @@ export default function PwaPage({ isStandalone }: Props) {
     viewport?.addEventListener('scroll', updateAppHeight);
     window.addEventListener('resize', updateAppHeight);
     window.addEventListener('orientationchange', updateAppHeight);
+    window.addEventListener('focusout', updateAppHeight);
 
     return () => {
       viewport?.removeEventListener('resize', updateAppHeight);
       viewport?.removeEventListener('scroll', updateAppHeight);
       window.removeEventListener('resize', updateAppHeight);
       window.removeEventListener('orientationchange', updateAppHeight);
+      window.removeEventListener('focusout', updateAppHeight);
       document.documentElement.classList.remove('nd-pwa-viewport-lock');
       document.body.classList.remove('nd-pwa-viewport-lock');
     };
@@ -338,10 +348,6 @@ export default function PwaPage({ isStandalone }: Props) {
     markOnboarded();
     navigateTo('home');
   }, [markOnboarded, navigateTo]);
-
-  const showComingSoon = useCallback(() => {
-    window.alert('Phase 10에서 제공될 예정이에요.');
-  }, []);
 
   const startGuide = useCallback((option: ProblemOption, mode: GuideInputMode = 'camera', files: File[] = []) => {
     setSymptomText('');
@@ -647,9 +653,6 @@ export default function PwaPage({ isStandalone }: Props) {
           <AppLogo size={32}/>
           <AppWordmark size={18}/>
         </div>
-        <button type="button" className="nd-pwa-icon-btn" onClick={showComingSoon} title="Phase 10 예정" aria-label="히스토리 보기 예정">
-          <History size={20}/>
-        </button>
       </div>
 
       <div className="nd-pwa-intake-hero">

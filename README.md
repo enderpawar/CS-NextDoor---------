@@ -1,5 +1,7 @@
 # 옆집 컴공생 (NextDoor CS)
 
+**배포 링크:** https://nextdoor-cs.vercel.app
+
 > "수리기사 부르기 전, 옆집 컴공생에게 먼저 물어보세요!"
 
 AI 기반 PC 하드웨어 진단 PWA.  
@@ -195,6 +197,23 @@ graph TB
 | AR 표시 | Gemini의 `targetId`/`bbox`를 SVG overlay로 렌더링 | 사용자가 눌러야 할 위치를 카메라 위에 표시 | `src/components/mobile/LiveGuideMode.tsx` |
 
 즉, OpenCV는 백그라운드에서 한 번 실행되는 데모 코드가 아니라, **카메라 프레임 입력 → 품질 판단 → 화면 구조 추출 → 좌표 후보 생성 → AR 오버레이**까지 라이브 가이드 흐름의 앞단을 담당합니다.
+
+### 진단 클립 캡처 — 길게 누름 → 짧은 영상에서 상위 N개 프레임 자동 선별
+
+라이브 프레임 모드(매 프레임을 그때그때 게이팅)와 별개로, **카메라 셔터를 길게 누르면(≥ 650 ms) OpenCV가 짧은 영상 클립을 직접 채점해 상위 N개 프레임만 골라 Gemini로 전송하는 진단 모드**가 별도로 동작합니다. 한 장의 정지 사진만으로는 의미가 드러나지 않는 **LED 깜박임, 팬 회전, 부팅 시퀀스, BIOS 화면 전환, 비프음/팬 소음 같은 시간성 신호**를 단일 LLM 호출 비용 안에서 분석하기 위한 모드입니다.
+
+| 단계 | 처리 | 구현 위치 |
+|---|---|---|
+| 트리거 | 카메라 버튼 long-press 650 ms 이상 → 클립 캡처 시작 (`shouldStartDiagnosticClip`) | `src/components/mobile/LiveGuideMode.tsx` |
+| 샘플링 | 125 ms 간격, 최대 4초까지 프레임 수집 (최대 ~32장) + 마이크 RMS/peak 동시 수집 | `useDiagnosticClipCapture.ts:beginClipCapture` |
+| 채점 | 각 프레임에 `analyzeFrame` 실행 → `qualityScore` (Laplacian/brightness 기반) + `sceneChangeScore` (histogram 변화) | `src/lib/cv/frameMetrics.ts` |
+| **상위 N 선별** | **quality 상위 3장 + sceneChange 상위 3장 → 중복 제거 후 최대 5장** | `selectDiagnosticFrames()` |
+| 대표 프레임 1장 | quality 최고 프레임 1장에만 모듈 1(BIOS 파이프라인) 실행 → OCR/ROI 후보 추출 | `runBiosPipeline()` |
+| 정량 요약 | 5장 전체에서 brightness pulse Hz, scene change count, LED blink likely, fan/motion likely 산출 → `cvSummary` 문자열로 Gemini 프롬프트에 포함 | `buildDiagnosticClipSummary()` |
+| 모드 분기 | usable=0 + 비프음/노이즈 감지 → `audio-only`, 둘 다 있으면 `hybrid`, 시각만 있으면 `visual` | `classifyDiagnosticClipMode()` |
+| 폴백 | 모듈 3 품질 게이트가 모든 프레임을 거부하면 `captureMode='audio-only'`로 전환 후 사용자 피드백 표시 | `LiveGuideMode.tsx` |
+
+핵심 차별점은 **"영상을 통째로 Gemini에 보내지 않는다"** 는 것입니다. 4초 동안 수집된 ~32장 중 OpenCV가 두 축(품질/변화)으로 정렬해 **상위 5장 dedup + 그중 대표 1장의 JPEG + 정량 메타데이터**만 LLM 입력으로 사용하므로, LED 깜박임이나 비프음 같은 시간성 신호도 단일 호출 비용 안에서 다룰 수 있습니다. Phase 8에서 별도의 `AudioCapture` 진입점이 제거되고 이 클립 캡처에 오디오 분석이 흡수된 이유이기도 합니다.
 
 ### Gemini만 사용하지 않은 이유
 
