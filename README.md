@@ -7,6 +7,36 @@ AI 기반 PC 하드웨어/소프트웨어 진단 서비스.
 
 ---
 
+## ✅ CV Term Project 핵심 요약
+
+이 프로젝트의 핵심은 Gemini Vision 자체가 아니라, **OpenCV.js가 모바일 카메라 입력을 분석 가능한 프레임으로 선별하고, BIOS 화면 구조와 텍스트 후보 좌표를 추출해 Gemini의 판단 을 구체화하는 컴퓨터 비전 파이프라인**입니다.
+
+Gemini는 최종 자연어 안내와 의미 선택을 담당하지만, 그 전에 OpenCV가 다음 작업을 수행합니다.
+
+| OpenCV 단계 | 사용 알고리즘 | Gemini에 주는 영향 |
+|---|---|---|
+| 품질 게이트 | Laplacian variance, brightness, edge/coverage metric | 흐림·반사·어두운 프레임을 LLM 호출 전에 제거 |
+| 변화 감지 | `compareHist` 기반 histogram correlation | 같은 화면 반복 전송을 줄이고 의미 있는 전환만 분석 |
+| BIOS 구조 추출 | Canny, HoughLinesP, contour quad, Homography/RANSAC | 전체 이미지 대신 BIOS ROI와 화면 좌표계를 제공 |
+| 전처리 | CLAHE, Adaptive Gaussian Threshold | 저대비·불균일 조명 화면에서 텍스트 후보를 분리 |
+| 후보 좌표 생성 | Connected Components, OCR/ROI bbox mapping | Gemini가 고른 `targetId`/`bbox`를 AR 오버레이로 표시 |
+
+즉, 본 프로젝트는 “사진을 Gemini에 보내는 앱”이 아니라, **OpenCV가 입력 게이트와 좌표 grounding을 만들고 Gemini가 그 후보 안에서 다음 행동을 선택하는 구조**입니다.
+
+정량 근거는 실촬영 BIOS 22장과 변화 감지 36조합 ablation으로 제시했습니다.
+
+| 평가 항목 | 결과 |
+|---|---:|
+| 실촬영 BIOS 프레임 품질 게이트 | 8/22 통과, 14/22 거부 |
+| BIOS ROI/corner 후보 검출 | 14/22 (**63.6%**) |
+| 평균 Hough line 후보 | **740.2개** |
+| 평균 텍스트/에지 ROI 후보 | **425.1개** |
+| 변화 감지 최적 조합 | HISTCMP_CORREL × GRAY × window=5 |
+| 변화 감지 전체 평균 F1 | **0.703** |
+| 정상 화면 전환 F1 | **0.917** |
+
+---
+
 ## 🎬 Demo
 
 > 라이브 카메라 가이드 모드 — PC 화면을 스마트폰으로 비추면 단계별 안내를 실시간으로 받을 수 있습니다.
@@ -112,6 +142,18 @@ graph TB
 ---
 
 ## 🔬 컴퓨터 비전 파이프라인
+
+### CV-first 설계 원칙
+
+채점 기준상 중요한 부분은 OpenCV와 Gemini의 역할 분리입니다. 본 프로젝트에서 **Gemini는 원본 이미지를 무제한으로 해석하는 주체가 아닙니다.** OpenCV가 먼저 프레임 품질, 변화 여부, BIOS 화면 영역, 텍스트/에지 후보 좌표를 계산하고, Gemini는 이 결과를 함께 받아 “어느 후보가 사용자의 목표에 맞는 다음 조작 대상인가”를 선택합니다.
+
+따라서 컴퓨터 비전의 역할은 보조 장식이 아니라 다음 세 가지입니다.
+
+1. **입력 선택**: 분석 가치가 낮은 프레임을 Gemini 호출 전에 제거합니다.
+2. **공간 구조화**: BIOS 화면과 후보 텍스트 영역을 픽셀 좌표로 변환합니다.
+3. **행동 연결**: Gemini의 자연어 판단을 실제 카메라 화면의 AR 박스로 연결합니다.
+
+이 구조 때문에 최종 안내가 “Boot Option을 누르세요”라는 문장으로 끝나지 않고, OpenCV가 만든 좌표계 위에서 사용자가 눌러야 할 위치까지 표시됩니다.
 
 세 모듈이 순차 게이트 구조로 동작합니다:
 
