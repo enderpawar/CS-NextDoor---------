@@ -381,11 +381,18 @@ export function useDiagnosticClipCapture({
     let ocrRegions: GuideOcrRegion[] | undefined;
     if (cvReady && !isHwRepairContext(context) && captureMode !== 'audio-only') {
       try {
-        const ocrResult = await runBiosPipeline(new ImageData(
-          new Uint8ClampedArray(representative.frame.data),
-          representative.frame.width,
-          representative.frame.height,
-        ));
+        // Tesseract 첫 호출 모델 다운로드/worker 초기화 hang 방어 — 8초 timeout
+        const OCR_TIMEOUT_MS = 8_000;
+        const ocrResult = await Promise.race([
+          runBiosPipeline(new ImageData(
+            new Uint8ClampedArray(representative.frame.data),
+            representative.frame.width,
+            representative.frame.height,
+          )),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('OCR timeout')), OCR_TIMEOUT_MS),
+          ),
+        ]);
         ocrRegions = ocrResult.ocrRegions;
         cvSummary = [
           cvSummary,

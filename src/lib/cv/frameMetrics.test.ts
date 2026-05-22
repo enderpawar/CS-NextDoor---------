@@ -63,6 +63,25 @@ describe('CV frame metrics harness', () => {
     expect(metrics.qualityScore).toBeGreaterThan(75);
   });
 
+  it('falls back when OpenCV.js does not expose findNonZero', () => {
+    const globalWithCv = globalThis as typeof globalThis & { cv?: unknown };
+    const previousCv = globalWithCv.cv;
+    globalWithCv.cv = {
+      Mat: function Mat() {},
+      Laplacian() {},
+      meanStdDev() {},
+      calcHist() {},
+    };
+
+    try {
+      const metrics = analyzeFrame(checkerFrame('opencv-without-findnonzero'));
+      expect(metrics.guidance).toBe('ready');
+      expect(metrics.isUsable).toBe(true);
+    } finally {
+      globalWithCv.cv = previousCv;
+    }
+  });
+
   it('rejects small target regions as too far', () => {
     const metrics = analyzeFrame(squareFrame('tiny-roi', 4), undefined, {
       minBrightness: 0.05,

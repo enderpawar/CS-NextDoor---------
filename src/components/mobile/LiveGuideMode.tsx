@@ -1286,7 +1286,14 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
           rgba.height,
         );
         try {
-          const ocrResult = await runBiosPipeline(ocrFrame);
+          // Tesseract 모델 다운로드/worker 초기화 hang 방어 — 8초 timeout
+          const OCR_TIMEOUT_MS = 8_000;
+          const ocrResult = await Promise.race([
+            runBiosPipeline(ocrFrame),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('OCR timeout')), OCR_TIMEOUT_MS),
+            ),
+          ]);
           ocrRegions = ocrResult.ocrRegions;
           setBiosOcrRegions(ocrRegions);
           cvSummary = [
@@ -1328,63 +1335,71 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   ]);
 
   const finishDiagnosticClipCapture = useCallback(async (fallbackToPhoto = true) => {
+    // 진입 시 설정한 "분석 중" 텍스트는 finally에서 자동 정리 — 모든 early-return/throw 분기에 대해
+    // 일관된 cleanup을 보장한다. 각 분기에서 명시적으로 다른 메시지를 설정한 경우는 보존된다.
+    const ANALYZING_TEXT = '깜빡임/소리 분석 중...';
     const pointerState = capturePointerRef.current;
     if (pointerState) pointerState.finished = true;
     setClipCaptureState('analyzing');
-    setQualityText('깜빡임/소리 분석 중...');
-
-    const result = await diagnosticClip.finishClipCapture();
-    if (!result) {
-      setClipCaptureState('idle');
-      capturePointerRef.current = null;
-      setQualityText('클립이 너무 짧아 사진 1장으로 분석할게요.');
-      if (fallbackToPhoto) await handleManualCapture();
-      return;
-    }
-
-    if (guide.isSendingRef.current || guide.session?.status !== 'ACTIVE') {
-      setClipCaptureState('idle');
-      capturePointerRef.current = null;
-      return;
-    }
-
-    setFrozenFrame({
-      dataUrl: `data:image/jpeg;base64,${result.frameBase64}`,
-      width: result.width,
-      height: result.height,
-    });
-    setBiosVideoSize({ w: result.width, h: result.height });
-    if (result.ocrRegions) setBiosOcrRegions(result.ocrRegions);
-
-    const shouldUseInitialQuestion = !guide.streamText && !!initialQuestionRef.current;
-    const question = shouldUseInitialQuestion ? initialQuestionRef.current : '';
-    const effectiveGoal = taskGoalRef.current || question;
-    if (effectiveGoal && !taskGoalRef.current) setTaskGoal(effectiveGoal);
+    setQualityText(ANALYZING_TEXT);
 
     try {
-      await guide.sendFrame(
-        result.frameBase64,
-        null,
-        [
-          result.cvSummary,
-          question ? 'userQuestion=true' : 'userQuestion=false',
-          question
-            ? (guide.streamText ? 'guidePhase=question-followup' : 'guidePhase=question-initial')
-            : (guide.streamText ? 'guidePhase=followup' : 'guidePhase=initial'),
-          `previousActionResult=${lastActionResultRef.current}`,
-        ].join(', '),
-        result.ocrRegions,
-        question || undefined,
-        effectiveGoal || undefined,
-      );
-      if (shouldUseInitialQuestion) initialQuestionRef.current = '';
-      lastActionResultRef.current = 'none';
-      setQualityText(result.qualityFeedback ?? '');
-    } catch {
-      // sendFrame 내부에서 처리됨
+      const result = await diagnosticClip.finishClipCapture();
+      if (!result) {
+        setQualityText('클립이 너무 짧아 사진 1장으로 분석할게요.');
+        if (fallbackToPhoto) await handleManualCapture();
+        return;
+      }
+
+      if (guide.isSendingRef.current || guide.session?.status !== 'ACTIVE') {
+        setQualityText(
+          guide.session?.status !== 'ACTIVE'
+            ? '세션이 끊어졌어요. 다시 시작해주세요.'
+            : '이전 분석이 끝난 뒤 다시 시도해주세요.',
+        );
+        return;
+      }
+
+      setFrozenFrame({
+        dataUrl: `data:image/jpeg;base64,${result.frameBase64}`,
+        width: result.width,
+        height: result.height,
+      });
+      setBiosVideoSize({ w: result.width, h: result.height });
+      if (result.ocrRegions) setBiosOcrRegions(result.ocrRegions);
+
+      const shouldUseInitialQuestion = !guide.streamText && !!initialQuestionRef.current;
+      const question = shouldUseInitialQuestion ? initialQuestionRef.current : '';
+      const effectiveGoal = taskGoalRef.current || question;
+      if (effectiveGoal && !taskGoalRef.current) setTaskGoal(effectiveGoal);
+
+      try {
+        await guide.sendFrame(
+          result.frameBase64,
+          null,
+          [
+            result.cvSummary,
+            question ? 'userQuestion=true' : 'userQuestion=false',
+            question
+              ? (guide.streamText ? 'guidePhase=question-followup' : 'guidePhase=question-initial')
+              : (guide.streamText ? 'guidePhase=followup' : 'guidePhase=initial'),
+            `previousActionResult=${lastActionResultRef.current}`,
+          ].join(', '),
+          result.ocrRegions,
+          question || undefined,
+          effectiveGoal || undefined,
+        );
+        if (shouldUseInitialQuestion) initialQuestionRef.current = '';
+        lastActionResultRef.current = 'none';
+        setQualityText(result.qualityFeedback ?? '');
+      } catch {
+        // sendFrame 내부에서 처리됨 — qualityText는 finally에서 정리
+      }
     } finally {
       setClipCaptureState('idle');
       capturePointerRef.current = null;
+      // ANALYZING_TEXT가 그대로 남아있으면(어느 분기에서도 덮어쓰지 않은 경우) 비움
+      setQualityText(prev => (prev === ANALYZING_TEXT ? '' : prev));
     }
   }, [diagnosticClip, guide, handleManualCapture, setTaskGoal]);
 

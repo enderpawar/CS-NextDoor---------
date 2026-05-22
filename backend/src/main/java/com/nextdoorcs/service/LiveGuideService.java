@@ -3,7 +3,10 @@ package com.nextdoorcs.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nextdoorcs.exception.DiagnosisException;
+import com.nextdoorcs.service.GeminiService.GuideResponseEnvelope;
+import com.nextdoorcs.service.GeminiService.TokenUsage;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -15,6 +18,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LiveGuideService {
@@ -68,10 +72,8 @@ public class LiveGuideService {
         CompletableFuture.runAsync(() -> {
             try {
                 String prompt = buildGuidePrompt(session.context(), history, cvSummary, ocrRegions, userQuestion, taskGoal);
-                GuideModelResponse guideResponse = parseGuideResponse(
-                    geminiService.generateGuideResponse(prompt, frameBase64),
-                    ocrRegions
-                );
+                GuideResponseEnvelope envelope = geminiService.generateGuideResponseWithUsage(prompt, frameBase64);
+                GuideModelResponse guideResponse = parseGuideResponse(envelope.message(), ocrRegions);
                 // Gemini가 overlay=null로 답해도 message에 OCR 후보 텍스트가 명시되면 자동 매칭
                 guideResponse = autoOverlayFromMessage(guideResponse, ocrRegions);
                 guideResponse = normalizeOverlayInstruction(guideResponse);
@@ -83,6 +85,10 @@ public class LiveGuideService {
                         .name("overlay")
                         .data(objectMapper.writeValueAsString(guideResponse.overlay())));
                 }
+
+                // Token usage forward — 클라이언트 측정 + README 실측 보강용
+                emitUsage(emitter, envelope.usage(), session.context(), cvSummary);
+
                 emitter.send(SseEmitter.event().data("[DONE]"));
                 emitter.complete();
             } catch (Exception e) {
@@ -97,6 +103,39 @@ public class LiveGuideService {
         });
 
         return emitter;
+    }
+
+    /**
+     * Gemini usage 메타데이터를 SSE 'usage' 이벤트로 forward하고 구조화 로그로 남긴다.
+     * 클라이언트는 console.log로 누적 측정, 백엔드 로그는 Render dashboard에서 grep 가능.
+     * captureSource(clip/galleryVideo/none)도 함께 남겨 README 전송 방식 비교 표 보강에 사용.
+     */
+    private void emitUsage(SseEmitter emitter, TokenUsage usage, String context, String cvSummary) {
+        String captureSource = extractCaptureSource(cvSummary);
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("promptTokens", usage.promptTokens());
+            payload.put("candidatesTokens", usage.candidatesTokens());
+            payload.put("totalTokens", usage.totalTokens());
+            payload.put("captureSource", captureSource);
+            payload.put("context", context);
+            emitter.send(SseEmitter.event()
+                .name("usage")
+                .data(objectMapper.writeValueAsString(payload)));
+        } catch (IOException ignored) {
+            // usage forward 실패는 본 응답에 영향 없음 — 무시
+        }
+        log.info("[GUIDE-USAGE] context={} captureSource={} promptTokens={} candidatesTokens={} totalTokens={}",
+            context, captureSource,
+            usage.promptTokens(), usage.candidatesTokens(), usage.totalTokens());
+    }
+
+    private String extractCaptureSource(String cvSummary) {
+        if (cvSummary == null) return "none";
+        if (cvSummary.contains("captureSource=clip")) return "clip";
+        if (cvSummary.contains("captureSource=galleryVideo")) return "galleryVideo";
+        if (cvSummary.contains("manualCapture=true")) return "photo";
+        return "live";
     }
 
     // ── 만료 세션 정리 (@Scheduled 15분 주기) ─────────────────────────────────

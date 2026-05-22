@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "AI PC hardware and software diagnosis MVP",
   "author": "NextDoor CS",
+  "license": "MIT",
   "private": true,
   "main": "dist/electron/main.js",
   "scripts": {

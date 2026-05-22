@@ -211,6 +211,33 @@ graph TB
 
 핵심 차별점은 **"영상을 통째로 Gemini에 보내지 않는다"** 는 것입니다. 4초 동안 수집된 ~32장 중 OpenCV가 두 축(품질/변화)으로 정렬해 **상위 5장 dedup + 그중 대표 1장의 JPEG + 정량 메타데이터**만 LLM 입력으로 사용하므로, LED 깜박임이나 비프음 같은 시간성 신호도 단일 호출 비용 안에서 다룰 수 있습니다. Phase 8에서 별도의 `AudioCapture` 진입점이 제거되고 이 클립 캡처에 오디오 분석이 흡수된 이유이기도 합니다.
 
+#### 전송 방식별 비용·지연 비교 (추정)
+
+같은 4초 동영상 단서를 LLM에 전달하는 세 가지 가상 시나리오를 같은 축에서 비교합니다. 실측이 아닌 **API 토큰 산정 규칙과 일반 모바일 환경 기준 추정치**이며, 정확한 토큰·비용은 Gemini 사용량 메타데이터를 수집한 후 보강할 예정입니다.
+
+| 전송 방식 | 업로드 크기 | 이미지 토큰¹ | 텍스트 토큰² | 응답 시간³ | 모바일 적합성 |
+|---|---|---|---|---|---|
+| 영상 통째 전송 (4초 1080p) | 2~5 MB | ~1,000 (~1 fps 샘플링) | ~200 | 8~15 s | △ |
+| 상위 5장 dedup + 요약 | ~250 KB | ~1,300 (258 × 5) | ~250 | 4~8 s | ✅ |
+| **대표 1장 + cvSummary (현재 설계)** | **~50 KB** | **~258** | **~250** | **2~5 s** | **✅** |
+
+¹ Gemini 2.5 기준 768×768 미만 이미지는 이미지당 258 토큰 고정. 영상 입력은 약 1 fps 샘플링으로 토큰화된다는 공식 가이드를 토대로 산정. 출처: [Gemini API — Image/Video understanding](https://ai.google.dev/gemini-api/docs/vision).
+² `cvSummary` 메타데이터(brightnessPulseHz, sceneChangeCount, ledBlinkLikely, audio peak/rms, captureMode 등)와 OCR 후보 JSON의 대략적 합산.
+³ Spring Boot → Gemini → SSE 왕복 합산. 실측 아님 — 모바일 LTE에서의 업로드 시간 + 모델 추론 시간 일반 범위.
+
+이미지 토큰만 보면 차이는 작지만, **업로드 대역폭은 약 40~100배, 응답 시간은 약 2~3배 차이**가 납니다. 모바일 PWA에서 길게 누름 → 즉시 안내가 필요한 UX에서 이 차이가 결정적입니다. 또한 영상 입력은 Gemini가 자체 샘플링으로 정보를 잃는 반면, 본 설계는 **클라이언트 OpenCV가 의도적으로 의미 있는 5장을 골라 통계로 압축**하므로 시간성 신호(깜박임 Hz, 비프음 피크) 자체는 영상 통째 전송보다 오히려 잘 보존됩니다.
+
+##### 실측 토큰 사용량 측정 방법
+
+위 표를 실측값으로 보강하기 위해 Gemini API의 `usageMetadata` 를 다음 경로로 수집합니다.
+
+1. **백엔드** — `GeminiService.generateGuideResponseWithUsage()` 가 `usageMetadata` 를 파싱해 `TokenUsage` 레코드로 반환.
+2. **SSE forward** — `LiveGuideService.processFrame()` 이 SSE `usage` 이벤트로 `{promptTokens, candidatesTokens, totalTokens, captureSource, context}` 를 클라이언트에 push.
+3. **백엔드 로그** — 같은 정보를 `[GUIDE-USAGE] context=… captureSource=… promptTokens=… …` 형식으로 SLF4J 로그에 남김. Render dashboard 또는 로컬 stdout 에서 `grep GUIDE-USAGE` 로 후처리 가능.
+4. **클라이언트 누적** — `useGeminiLiveGuide` 가 `captureSource` 별로 호출 횟수와 토큰 합을 누적해 콘솔에 `[guide-usage] source=clip n=… avg(prompt=…, total=…) this(…)` 출력. 개발자 도구 콘솔에서 `__nextdoorGuideUsage` 로 평균 조회 가능.
+
+`captureSource` 는 `clip` (길게 누름 동영상), `photo` (탭 사진), `live` (라이브 프레임 게이트), `galleryVideo` (갤러리 동영상) 4종으로 분리되어 같은 세션의 다른 진입 방식 간 직접 비교가 가능합니다. 실측값이 30회 이상 누적되면 위 추정 표의 "이미지 토큰" / "텍스트 토큰" 열을 평균치로 교체할 예정입니다.
+
 ### Gemini만 사용하지 않은 이유
 
 #### 핵심 차별점 — 텍스트 안내 vs 좌표 안내

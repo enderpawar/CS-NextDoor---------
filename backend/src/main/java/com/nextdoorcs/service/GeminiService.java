@@ -266,6 +266,14 @@ public class GeminiService {
      * 라이브 가이드 모드 — 화면 이미지 + 프롬프트 → 안내 텍스트 (단순 텍스트 반환)
      */
     public String generateGuideResponse(String prompt, String frameBase64) {
+        return generateGuideResponseWithUsage(prompt, frameBase64).message();
+    }
+
+    /**
+     * 라이브 가이드 모드 — 안내 텍스트 + usage 메타데이터.
+     * SSE forward 및 README 실측 보강용 토큰 사용량 측정에 사용.
+     */
+    public GuideResponseEnvelope generateGuideResponseWithUsage(String prompt, String frameBase64) {
         List<Map<String, Object>> parts = new ArrayList<>();
         parts.add(Map.of("text", prompt));
         if (frameBase64 != null && !frameBase64.isBlank()) {
@@ -274,10 +282,71 @@ public class GeminiService {
                 "data", frameBase64
             )));
         }
-        return callGemini(parts, Map.of(
+        Map<String, Object> response = callGeminiRaw(parts, Map.of(
             "responseMimeType", "application/json",
             "temperature", 0.2
         ));
+        String text = extractText(response);
+        TokenUsage usage = extractUsage(response);
+        return new GuideResponseEnvelope(text, usage);
+    }
+
+    /**
+     * Gemini API 호출 후 raw 응답 반환 — usage 메타데이터 추출 등에 사용.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> callGeminiRaw(List<Map<String, Object>> parts, Map<String, Object> generationConfig) {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new DiagnosisException("Gemini API 키가 설정되지 않았어요. 백엔드 실행 환경에 GEMINI_API_KEY를 넣어주세요.");
+        }
+
+        Map<String, Object> requestBody = generationConfig == null
+            ? Map.of("contents", List.of(Map.of("parts", parts)))
+            : Map.of(
+                "contents", List.of(Map.of("parts", parts)),
+                "generationConfig", generationConfig
+            );
+        String url = GEMINI_BASE_URL + model + ":generateContent?key=" + apiKey;
+
+        try {
+            return restTemplate.postForObject(url, requestBody, Map.class);
+        } catch (HttpStatusCodeException e) {
+            int status = e.getStatusCode().value();
+            if (status == 403) {
+                throw new DiagnosisException("Gemini API 키 또는 모델 접근 권한을 확인해주세요.", 500);
+            }
+            if (status == 404) {
+                throw new DiagnosisException("Gemini 모델을 찾을 수 없어요. GEMINI_MODEL 설정을 확인해주세요.", 500);
+            }
+            throw new DiagnosisException("Gemini API 호출에 실패했어요. 상태 코드: " + status, 500);
+        }
+    }
+
+    /**
+     * Gemini 응답의 usageMetadata 파싱.
+     * 필드 부재 시 null 필드를 가진 TokenUsage 반환 (0이 아니라 null로 — 측정 실패 명시).
+     */
+    @SuppressWarnings("unchecked")
+    private TokenUsage extractUsage(Map<String, Object> response) {
+        if (response == null) return TokenUsage.empty();
+        Object raw = response.get("usageMetadata");
+        if (!(raw instanceof Map<?, ?> usageMap)) return TokenUsage.empty();
+        Map<String, Object> usage = (Map<String, Object>) usageMap;
+        return new TokenUsage(
+            asInteger(usage.get("promptTokenCount")),
+            asInteger(usage.get("candidatesTokenCount")),
+            asInteger(usage.get("totalTokenCount"))
+        );
+    }
+
+    private Integer asInteger(Object value) {
+        if (value instanceof Number num) return num.intValue();
+        return null;
+    }
+
+    public record GuideResponseEnvelope(String message, TokenUsage usage) {}
+    public record TokenUsage(Integer promptTokens, Integer candidatesTokens, Integer totalTokens) {
+        public static TokenUsage empty() { return new TokenUsage(null, null, null); }
     }
 
     private String buildHypothesisPrompt(String symptom, String systemSnapshotJson) {

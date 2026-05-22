@@ -21,14 +21,17 @@ declare const cv: any;
 
 /**
  * OpenCV.js WASM이 사용 가능한지 (테스트/SSR 환경에서는 false).
- * 호출 메서드를 직접 확인 — `cv` 글로벌만 존재하고 onRuntimeInitialized 전인 케이스도 거름.
+ * 호출 메서드를 직접 확인 — `cv` 글로벌만 존재하고 onRuntimeInitialized 전인 케이스와
+ * 일부 OpenCV.js 빌드에서 선택적으로 빠지는 바인딩이 있는 케이스도 거름.
  */
 function isOpenCvReady(): boolean {
   return typeof cv !== 'undefined'
     && typeof cv.Mat === 'function'
     && typeof cv.Laplacian === 'function'
     && typeof cv.meanStdDev === 'function'
-    && typeof cv.calcHist === 'function';
+    && typeof cv.calcHist === 'function'
+    && typeof cv.findNonZero === 'function'
+    && typeof cv.boundingRect === 'function';
 }
 
 const DEFAULT_OPTIONS: Required<CvAnalysisOptions> = {

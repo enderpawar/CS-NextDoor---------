@@ -141,6 +141,44 @@ export function useGeminiLiveGuide() {
   const rateLimitUntilRef  = useRef<number>(0);
   const rateLimitCountRef  = useRef<number>(0);   // 연속 429 횟수
 
+  // ── Token usage 누적 측정 (README 실측 보강용) ──────────────────────────────
+  // 백엔드 SSE 'usage' 이벤트로 forward되는 Gemini usageMetadata를 captureSource별로 누적.
+  // 개발자 도구 콘솔에서 `window.__nextdoorGuideUsage` 로 평균 확인 가능.
+  interface UsageBucket { count: number; promptSum: number; candidatesSum: number; totalSum: number; }
+  const usageStatsRef = useRef<Record<string, UsageBucket>>({});
+
+  const recordUsage = useCallback((dataJson: string) => {
+    try {
+      const u = JSON.parse(dataJson) as {
+        promptTokens?: number; candidatesTokens?: number; totalTokens?: number;
+        captureSource?: string; context?: string;
+      };
+      const source = u.captureSource || 'unknown';
+      const bucket = usageStatsRef.current[source] ?? { count: 0, promptSum: 0, candidatesSum: 0, totalSum: 0 };
+      bucket.count += 1;
+      bucket.promptSum     += u.promptTokens     ?? 0;
+      bucket.candidatesSum += u.candidatesTokens ?? 0;
+      bucket.totalSum      += u.totalTokens      ?? 0;
+      usageStatsRef.current[source] = bucket;
+
+      // 콘솔 출력 — Vercel 배포 환경 PWA에서도 원격 디버깅으로 확인 가능
+      const avg = (sum: number) => bucket.count > 0 ? Math.round(sum / bucket.count) : 0;
+      console.log(
+        `[guide-usage] source=${source} n=${bucket.count} ` +
+        `avg(prompt=${avg(bucket.promptSum)}, candidates=${avg(bucket.candidatesSum)}, total=${avg(bucket.totalSum)}) ` +
+        `this(prompt=${u.promptTokens}, candidates=${u.candidatesTokens}, total=${u.totalTokens})`,
+      );
+
+      // window 객체에 노출 — 콘솔에서 `__nextdoorGuideUsage` 로 평균 조회
+      if (typeof window !== 'undefined') {
+        (window as unknown as { __nextdoorGuideUsage?: typeof usageStatsRef.current })
+          .__nextdoorGuideUsage = usageStatsRef.current;
+      }
+    } catch {
+      // usage 파싱 실패는 본 응답에 영향 없음 — 무시
+    }
+  }, []);
+
   // ── 내부 헬퍼: 경과 타이머 정지 ────────────────────────────────────────────
   const stopElapsedTimer = useCallback(() => {
     if (elapsedTimerRef.current) {
@@ -256,6 +294,9 @@ export function useGeminiLiveGuide() {
       lastSendAtRef.current  = now;
       isSendingRef.current   = true;
       abortRef.current = new AbortController();
+      // 서버/네트워크 hang 방어 — 90초 내 응답/완료 없으면 abort
+      const SEND_TIMEOUT_MS = 90_000;
+      const sendTimeoutId = setTimeout(() => abortRef.current?.abort(), SEND_TIMEOUT_MS);
 
       // 3단계 피드백 UI — Step 1: 캡처됨
       setCaptureState('captured');
@@ -359,6 +400,11 @@ export function useGeminiLiveGuide() {
               return;
             }
 
+            if (eventName === 'usage') {
+              recordUsage(data);
+              return;
+            }
+
             accumulated += data;
             const clean = data.replace(/\[완료\]/g, '');
             if (clean) {
@@ -395,11 +441,19 @@ export function useGeminiLiveGuide() {
           { role: 'model' as const, text: accumulated },
         ].slice(-MAX_HISTORY * 2);
       } catch (e) {
-        if ((e as Error).name !== 'AbortError') {
-          setLlmError((e as Error).message || 'LLM 응답 수신 실패');
+        const err = e as Error;
+        if (err.name === 'AbortError') {
+          // 타임아웃으로 인한 abort면 사용자에게 안내, 사용자 endSession이면 무시
+          if (Date.now() - lastSendAtRef.current >= SEND_TIMEOUT_MS - 500) {
+            setLlmError('응답 시간 초과');
+            setStreamText('응답이 너무 오래 걸려요. 잠시 후 다시 시도해주세요.');
+          }
+        } else {
+          setLlmError(err.message || 'LLM 응답 수신 실패');
           setStreamText('오류가 발생했어요. 잠시 후 다시 시도해주세요.');
         }
       } finally {
+        clearTimeout(sendTimeoutId);
         isSendingRef.current  = false;
         setIsStreaming(false);
         setCaptureState('idle');
