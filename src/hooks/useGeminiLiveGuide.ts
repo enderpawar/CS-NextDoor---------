@@ -13,7 +13,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { GuideArTarget, GuideContext, GuideOcrRegion, GuideSession, GuideMessage } from '../types';
-import { API_BASE_URL } from '../api/config';
+import { API_BASE_URL, USE_MOCK_API } from '../api/config';
 
 const MAX_HISTORY  = 6;   // 최대 N턴 슬라이딩 히스토리 (토큰 누적 방지)
 // 백엔드 없이 데모 동작을 위한 모의 모드
@@ -175,6 +175,22 @@ export function useGeminiLiveGuide() {
   const startSession = useCallback(async (context: GuideContext): Promise<void> => {
     let sessionId: string;
 
+    const createMockSession = (reason: string) => {
+      setLlmMode('mock');
+      setLlmError(reason);
+      return `mock-${Date.now()}`;
+    };
+
+    if (USE_MOCK_API) {
+      sessionId = createMockSession('VITE_USE_MOCK=true 설정으로 mock 안내를 사용 중이에요.');
+      setSession({ sessionId, context, status: 'ACTIVE' });
+      historyRef.current = [];
+      setStreamText('');
+      setStaleGuide(false);
+      setArTarget(null);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/guide/start`, {
         method: 'POST',
@@ -186,11 +202,15 @@ export function useGeminiLiveGuide() {
       sessionId = data.sessionId;
       setLlmMode('live');
       setLlmError('');
-    } catch {
-      // 백엔드 미응답 → mock 모드로 자동 전환 (데모/개발 환경)
-      sessionId = `mock-${Date.now()}`;
-      setLlmMode('mock');
-      setLlmError(`백엔드(${API_BASE_URL})에 연결되지 않아 mock 안내로 전환됐어요.`);
+    } catch (error) {
+      if (!import.meta.env.DEV) {
+        const message = `백엔드(${API_BASE_URL || 'same-origin /api'})에 연결되지 않아 가이드 세션을 시작할 수 없어요.`;
+        setLlmMode('unknown');
+        setLlmError(message);
+        throw error instanceof Error ? error : new Error(message);
+      }
+      // 개발환경 백엔드 미응답 → mock 모드로 자동 전환
+      sessionId = createMockSession(`백엔드(${API_BASE_URL})에 연결되지 않아 mock 안내로 전환됐어요.`);
     }
 
     setSession({ sessionId, context, status: 'ACTIVE' });
