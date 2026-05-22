@@ -181,7 +181,7 @@ nextdoor-cs/
 | **11** 🔽 | 🚫 마감 후로 미룸 — Future Work (CV 무관) |
 | **CV 모듈 1** (BIOS 파이프라인) | ✅ MVP 완료 — `src/lib/cv/biosPipeline.ts` OpenCV.js 이식 완성. `notebooks/01-bios-pipeline.ipynb` synthetic 입력으로 실행 검증 완료. OCR 정확도 수치는 로컬 Tesseract 설치 후 실제 데이터로 재측정 필요 |
 | **CV 모듈 2** (히스토그램 분석) | ✅ MVP 완료 — `src/lib/cv/changeDetection.ts` 4 메트릭 이식 완성. `notebooks/02-histogram-analysis.ipynb` synthetic 5시나리오 ablation 결과: CORREL+GRAY+window=5+threshold=0.9999 |
-| **CV 모듈 3** (프레임 품질) | ✅ MVP 완료 — `src/lib/cv/frameMetrics.ts` Laplacian variance + 밝기 통계 완성. `notebooks/03-frame-quality.ipynb` Commons 웹 이미지 ablation 결과: minSharpness=0.05, minBrightness=0.15, maxBrightness=0.85 |
+| **CV 모듈 3** (프레임 품질) | ✅ MVP 완료 — `src/lib/cv/frameMetrics.ts` **production 경로 OpenCV.js 이식 완료** (cv.Laplacian + cv.meanStdDev + cv.Sobel + cv.calcHist + cv.findNonZero/boundingRect). 테스트·SSR용 JS 폴백 유지. `notebooks/03-frame-quality.ipynb` Commons 웹 이미지 ablation 결과: minSharpness=0.05, minBrightness=0.15, maxBrightness=0.85 |
 | **CV 모듈 4** (비프음, 선택) | 🔲 미시작 — `notebooks/04-beep-spectrogram.ipynb` |
 
 ---
