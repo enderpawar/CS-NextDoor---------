@@ -75,11 +75,17 @@ def load_real_labels() -> pd.DataFrame:
 
 
 def find_real_videos() -> list[Path]:
-    """`data/live-frames/real-*/**.mp4`만 골라서 반환. 합성과 분리."""
-    return sorted(
-        p for ext in ('*.mp4', '*.mov', '*.avi', '*.mkv', '*.MP4', '*.MOV')
-        for p in LIVE_DIR.glob(f'real-*/{ext}')
-    )
+    """`data/live-frames/real*/**.mp4` — `real/`와 `real-<vendor>/` 모두 포함. 합성 시나리오는 제외.
+    Windows 파일시스템은 대소문자 무시 → 확장자 매칭은 한 번만 + set으로 중복 제거."""
+    seen = set()
+    out: list[Path] = []
+    for ext in ('*.mp4', '*.mov', '*.avi', '*.mkv'):
+        for p in LIVE_DIR.glob(f'real*/{ext}'):
+            key = str(p).lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(p)
+    return sorted(out)
 
 
 # ── Frame extraction & scoring ────────────────────────────────────────────────

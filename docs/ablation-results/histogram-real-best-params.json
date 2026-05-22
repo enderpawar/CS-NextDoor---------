@@ -1,0 +1,9 @@
+{
+  "metric": "HISTCMP_CORREL",
+  "colorSpace": "RGB",
+  "windowSize": 3,
+  "threshold": 0.9995,
+  "mean_f1": 0.3396,
+  "mean_precision": 0.2368,
+  "mean_recall": 0.6
+}

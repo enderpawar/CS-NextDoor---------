@@ -1,1 +1,7 @@
 video_filename,event_timestamp_sec,event_type,notes,scenario
+real/Test_video.mp4,9.80,screen-change,menu selection change,real
+real/Test_video.mp4,22.60,screen-change,BIOS tab switch (layout shift visible at 23s),real
+real/Test_video.mp4,29.30,screen-change,menu/section change (strong diff peak),real
+real/Test_video.mp4,36.30,screen-change,Save & Exit area,real
+real/Test_video.mp4,43.20,screen-change,BIOS exit -> reboot (strongest diff 26.95),real
+real/Test_video.mp4,47.51,screen-change,OS boot loader screen,real
