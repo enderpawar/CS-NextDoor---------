@@ -52,8 +52,7 @@ https://youtube.com/shorts/ui-iWedoapU?si=vh799Z2-139FsLpk
 
 | 온보딩 | 문제 선택 | 촬영 준비 |
 |:---:|:---:|:---:|
-| <img src="docs/example-img/KakaoTalk_20260522_151727149.png" alt="옆집 컴공생 온보딩 화면" width="220"> |<img width="1179" height="2556" alt="image" src="https://github.com/user-attachments/assets/12b6ef9d-21af-4909-ad08-8af6c796177f" />
- | <img src="docs/example-img/KakaoTalk_20260522_151727149_04.png" alt="PC 화면 촬영 준비 화면" width="220"> |
+| <img src="docs/example-img/KakaoTalk_20260522_151727149.png" alt="옆집 컴공생 온보딩 화면" width="220"> |<img width="220" alt="image" src="https://github.com/user-attachments/assets/12b6ef9d-21af-4909-ad08-8af6c796177f">| <img src="docs/example-img/KakaoTalk_20260522_151727149_04.png" alt="PC 화면 촬영 준비 화면" width="220"> |
 
 | BIOS 화면 인식 | Boot Option #1 안내 | USB 부팅 옵션 안내 |
 |:---:|:---:|:---:|
