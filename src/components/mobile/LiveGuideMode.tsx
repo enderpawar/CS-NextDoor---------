@@ -34,6 +34,7 @@ import GoalInputSheet                        from './GoalInputSheet';
 import GuideBubble                           from './GuideBubble';
 import ShootingGuide                         from './ShootingGuide';
 import CvInsightPanel                        from './CvInsightPanel';
+import { extractGalleryVideoFrame }          from '../../api/guideApi';
 import type { GuideArTarget, GuideContext, BiosType, GuideOcrRegion, CvFrameInput } from '../../types';
 import { isHwRepairContext } from '../../types';
 import { compareHist }                       from '../../lib/cv/changeDetection';
@@ -191,6 +192,38 @@ function drawVideoToCanvas(
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   return { imageData, width: canvas.width, height: canvas.height };
+}
+
+async function decodeJpegBase64ToImageData(base64: string): Promise<DrawnVideoFrame> {
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('image-load-failed'));
+    img.src = `data:image/jpeg;base64,${base64}`;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('image-canvas-unavailable');
+  ctx.drawImage(img, 0, 0);
+  return {
+    imageData: ctx.getImageData(0, 0, canvas.width, canvas.height),
+    width: canvas.width,
+    height: canvas.height,
+  };
+}
+
+async function analyzeGalleryVideoOnServer(file: File): Promise<GalleryVideoAnalysis> {
+  const result = await extractGalleryVideoFrame(file);
+  const decoded = await decodeJpegBase64ToImageData(result.frameBase64);
+  return {
+    base64: result.frameBase64,
+    rgba: decoded.imageData,
+    width: result.width || decoded.width,
+    height: result.height || decoded.height,
+    cvSummary: result.cvSummary,
+  };
 }
 
 /**
@@ -962,14 +995,29 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             const message = err instanceof Error ? err.message : '';
             if (message === 'video-too-long') {
               setStreamError('동영상은 15초 이하만 분석할 수 있어요.');
-            } else if (message === 'video-file-too-large') {
-              setStreamError('동영상은 50MB 이하만 분석할 수 있어요.');
-            } else if (message === 'video-codec-unsupported' || message === 'video-duration-unavailable') {
-              setStreamError('이 동영상 코덱은 브라우저에서 열 수 없어요. mp4(h.264)로 다시 저장해주세요.');
-            } else {
-              setStreamError('동영상에서 분석할 화면 변화를 찾지 못했어요.');
+              return;
             }
-            return;
+            if (message === 'video-file-too-large') {
+              setStreamError('동영상은 50MB 이하만 분석할 수 있어요.');
+              return;
+            }
+
+            setQualityText('아이폰 영상 호환 처리를 위해 서버에서 화면을 추출하는 중...');
+            try {
+              const result = await analyzeGalleryVideoOnServer(file);
+              base64 = result.base64;
+              rgba = result.rgba;
+              width = result.width;
+              height = result.height;
+              cvSummary = [
+                result.cvSummary,
+                `browserVideoFallbackReason=${message || 'unknown'}`,
+              ].join(', ');
+            } catch (serverErr) {
+              const serverMessage = serverErr instanceof Error ? serverErr.message : '';
+              setStreamError(serverMessage || '동영상에서 분석할 화면을 찾지 못했어요.');
+              return;
+            }
           }
         } else {
           // 이미지 로드

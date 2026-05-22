@@ -1,16 +1,19 @@
 package com.nextdoorcs.controller;
 
 import com.nextdoorcs.dto.GuideFrameRequest;
+import com.nextdoorcs.dto.GalleryVideoFrameResponse;
 import com.nextdoorcs.dto.GuideStartRequest;
 import com.nextdoorcs.exception.DiagnosisException;
 import com.nextdoorcs.ratelimit.ApiRateLimiter;
 import com.nextdoorcs.service.LiveGuideService;
+import com.nextdoorcs.service.VideoFrameExtractionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
@@ -23,6 +26,7 @@ import java.util.Map;
 public class GuideController {
 
     private final LiveGuideService liveGuideService;
+    private final VideoFrameExtractionService videoFrameExtractionService;
     private final ApiRateLimiter   rateLimiter;
 
     /**
@@ -62,6 +66,23 @@ public class GuideController {
             req.userQuestion(),
             req.taskGoal()
         );
+    }
+
+    /**
+     * POST /api/guide/gallery-video-frame
+     * 브라우저가 직접 디코딩하지 못하는 iPhone HEVC/MOV 영상을 서버 FFmpeg로 대표 JPEG 프레임 추출.
+     */
+    @PostMapping(
+        value = "/gallery-video-frame",
+        consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<GalleryVideoFrameResponse> extractGalleryVideoFrame(
+            @RequestPart("file") MultipartFile file,
+            HttpServletRequest httpReq) {
+
+        rateLimiter.checkLimit("guide-video", getClientIp(httpReq));
+        return ResponseEntity.ok(videoFrameExtractionService.extractRepresentativeFrame(file));
     }
 
     /**

@@ -8,6 +8,13 @@ export interface GuideStartResponse {
   sessionId: string;
 }
 
+export interface GalleryVideoFrameResponse {
+  frameBase64: string;
+  width: number;
+  height: number;
+  cvSummary: string;
+}
+
 /**
  * POST /api/guide/start
  * 가이드 세션 생성
@@ -45,6 +52,30 @@ export async function sendGuideFrame(
   });
   if (!res.ok) throw new Error(`프레임 전송 실패: ${res.status}`);
   return res;
+}
+
+/**
+ * POST /api/guide/gallery-video-frame
+ * 브라우저가 직접 열 수 없는 iPhone HEVC/MOV 영상에서 서버가 대표 JPEG 프레임을 추출.
+ */
+export async function extractGalleryVideoFrame(file: File): Promise<GalleryVideoFrameResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/api/guide/gallery-video-frame`, {
+    method: 'POST',
+    body:   formData,
+  });
+  if (!res.ok) {
+    let message = `동영상 서버 분석 실패: ${res.status}`;
+    try {
+      const payload = await res.json() as { error?: string };
+      if (payload.error) message = payload.error;
+    } catch {
+      // keep status fallback
+    }
+    throw new Error(message);
+  }
+  return res.json() as Promise<GalleryVideoFrameResponse>;
 }
 
 /**
