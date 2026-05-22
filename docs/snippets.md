@@ -1694,21 +1694,22 @@ export default function useSessionSync(sessionId: string | null): SessionEvent |
 
 ---
 
-## Phase 11 — render.yaml (Render 자동 배포)
+## 백엔드 배포 — railway.json (Railway 자동 배포)
 
-```yaml
-services:
-  - type: web
-    name: nextdoorcs-backend
-    runtime: java
-    buildCommand: cd backend && ./mvnw clean package -DskipTests
-    startCommand: java $JAVA_OPTS -jar backend/target/*.jar
-    healthCheckPath: /actuator/health
-    envVars:
-      - key: JAVA_OPTS
-        value: -Xmx350m -Xss512k -XX:MaxMetaspaceSize=100m
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: SPRING_DATASOURCE_URL
-        sync: false
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "backend/Dockerfile"
+  },
+  "deploy": {
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}
 ```
+
+Railway Dashboard → New Project → Deploy from GitHub repo로 연결하면 `railway.json` 자동 감지. Variables 탭에 `GEMINI_API_KEY`, `GEMINI_MODEL`, `RATE_LIMIT_DAILY`, `ALLOWED_ORIGINS` 등록. `PORT`는 Railway가 자동 주입.
