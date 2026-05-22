@@ -55,7 +55,7 @@ function TipRow({ children }: { children: React.ReactNode }) {
 
 export default function ShootingGuide({ onDismiss, onBack }: Props) {
   return (
-    <div style={{
+    <div className="nd-shooting-guide-redesign" style={{
       width: '100%', minHeight: '100%', background: C.bg,
       fontFamily: 'Pretendard, system-ui, sans-serif', color: C.ink,
       display: 'flex', flexDirection: 'column',
@@ -149,8 +149,8 @@ export default function ShootingGuide({ onDismiss, onBack }: Props) {
       </div>
 
       {/* CTA */}
-      <div style={{ padding: `10px 22px max(env(safe-area-inset-bottom,0px),18px)`, flexShrink: 0 }}>
-        <button type="button" onClick={onDismiss} style={{ width: '100%', height: 56, borderRadius: 28, border: 'none', background: C.brand, color: '#fff', fontFamily: 'Pretendard, system-ui', fontWeight: 800, fontSize: 17, letterSpacing: -0.3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: `0 8px 20px -8px ${C.brand}88` }}>
+      <div className="nd-shooting-guide-cta" style={{ padding: `10px 22px calc(max(env(safe-area-inset-bottom,0px),18px) + var(--nd-shooting-cta-lift, 108px))`, flexShrink: 0 }}>
+        <button type="button" onClick={onDismiss} className="nd-shooting-guide-start" style={{ width: '100%', height: 56, borderRadius: 28, border: 'none', background: C.brand, color: '#fff', fontFamily: 'Pretendard, system-ui', fontWeight: 800, fontSize: 17, letterSpacing: -0.3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: `0 8px 20px -8px ${C.brand}88` }}>
           <Camera size={18}/>
           촬영 시작하기
         </button>

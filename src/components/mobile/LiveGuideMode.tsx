@@ -741,7 +741,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const [qualityText,       setQualityText]      = useState('');
   const [streamError,       setStreamError]      = useState('');
   const [resolutionStep,    setResolutionStep]   = useState<'idle' | 'action-done' | 'hidden'>('hidden');
-  const [questionDraft,     setQuestionDraft]    = useState(initialQuestion);
   const [reportDraft,       setReportDraft]      = useState('');
   const [exitConfirmOpen,   setExitConfirmOpen]  = useState(false);
   const [hwSafetyAck,       setHwSafetyAck]      = useState(false);  // HW 조치 안전 모달 1회 동의
@@ -920,12 +919,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     guide.captureState !== 'idle'
     || clipCaptureState !== 'idle'
     || guide.session?.status !== 'ACTIVE';
-  const questionSubmitDisabled =
-    guide.captureState !== 'idle'
-    || clipCaptureState !== 'idle'
-    || guide.session?.status !== 'ACTIVE'
-    || !questionDraft.trim();
-
   // ── 갤러리 이미지/짧은 동영상 업로드 → CV 전처리 → Gemini 전송 ───────────
   const processGalleryFile = useCallback(
     async (file: File) => {
@@ -1463,14 +1456,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     };
   }, [diagnosticClip]);
 
-  const handleQuestionSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const question = questionDraft.trim();
-    if (!question) return;
-    setQuestionDraft('');
-    await handleManualCapture(question);
-  }, [questionDraft, handleManualCapture]);
-
   const handleQualityFeedback = useCallback((message: string) => {
     if (guide.captureState !== 'idle' || clipCaptureState !== 'idle' || galleryProcessingRef.current) return;
 
@@ -1787,7 +1772,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const handleContextChange = useCallback((ctx: GuideContext) => {
     setContext(ctx);
     setContextSheetOpen(false);
-    setQuestionDraft('');
     setReportDraft('');
     clearFrozenGuideState();
     setTaskGoal('');
@@ -1811,7 +1795,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     }
 
     setContext('GENERAL');
-    setQuestionDraft('');
     setReportDraft('');
     setQualityText('');
     setStreamError('');
@@ -1848,7 +1831,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     }
     setQualityText('');
     setStreamError('');
-    setQuestionDraft('');
     setReportDraft('');
     clearFrozenGuideState();
     lastActionResultRef.current = 'none';
@@ -1894,7 +1876,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     stopCamera();
     setPage('done');
     setResolutionStep('hidden');
-    setQuestionDraft('');
     setReportDraft('');
     clearFrozenGuideState();
     lastActionResultRef.current = 'none';
@@ -1920,7 +1901,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
     setContext(initialContext);
     setQualityText('');
     setStreamError('');
-    setQuestionDraft('');
     setReportDraft('');
     clearFrozenGuideState();
     setTaskGoal(initialQuestion.trim());
@@ -2253,28 +2233,6 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
                 compact={hasFrozenFrame || !!activeOcrTarget}
                 targeting={!!activeOcrTarget}
               />
-              {guide.session?.status === 'ACTIVE' && !activeOcrTarget && (
-                <form className="nd-guide-question-form" onSubmit={handleQuestionSubmit}>
-                  <label className="nd-guide-question-label" htmlFor="nd-guide-question-input">
-                    질문하기
-                  </label>
-                  <div className="nd-guide-question-row">
-                    <input
-                      id="nd-guide-question-input"
-                      className="nd-guide-question-input"
-                      type="text"
-                      value={questionDraft}
-                      onChange={e => setQuestionDraft(e.target.value)}
-                      placeholder="지금 화면에 대해 물어보세요"
-                      maxLength={160}
-                      disabled={guide.captureState !== 'idle' || guide.session?.status !== 'ACTIVE'}
-                    />
-                    <button type="submit" className="nd-guide-question-submit" disabled={questionSubmitDisabled}>
-                      질문
-                    </button>
-                  </div>
-                </form>
-              )}
             </>
           )}
           {guide.streamText && guide.session?.status === 'ACTIVE' && !guide.isStreaming && resolutionStep !== 'hidden' && (

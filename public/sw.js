@@ -1,6 +1,6 @@
 // Service Worker — nextdoor-cs
 // ⚠️ 배포마다 버전 올릴 것 (구버전 캐시와 새 API 충돌 방지)
-const CACHE = 'nextdoorcs-v4';
+const CACHE = 'nextdoorcs-v5';
 
 // opencv.js (~8MB) 반드시 포함 — WASM 오프라인 동작 필수
 const PRECACHE = [

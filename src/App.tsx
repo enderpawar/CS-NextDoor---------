@@ -238,10 +238,6 @@ export default function App() {
           <div className="nd-intro-aurora nd-intro-aurora--three" aria-hidden="true"/>
 
           <div className="nd-intro-stack">
-            <span className="nd-intro-eyebrow">
-              <span className="nd-intro-eyebrow-dot" aria-hidden="true" />
-              컴공생을 깨우는 중
-            </span>
             <IntroMascot />
             <div className="nd-intro-wordmark" aria-label="옆집. 컴공생">
               <span className="nd-intro-wordmark-line">
