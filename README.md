@@ -1,4 +1,5 @@
 # 옆집 컴공생 (NextDoor CS)
+<img width="2549" height="1342" alt="image" src="https://github.com/user-attachments/assets/4d16deb5-205c-4ca7-b584-a1fa5e302078" />
 
 **배포 링크:** https://nextdoor-cs.vercel.app
 
