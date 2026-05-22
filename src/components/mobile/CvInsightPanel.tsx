@@ -84,13 +84,6 @@ export default function CvInsightPanel({ metrics, bios, cvReady, edgeMapDataUrl 
           {/* 구분선 */}
           <div className="nd-cv-panel-divider" />
 
-          <div className="nd-cv-stage-strip" aria-label="전처리 단계">
-            <span className="nd-cv-stage active">Canny</span>
-            <span className={`nd-cv-stage${bios?.rectified ? ' active' : ''}`}>Homography</span>
-            <span className={`nd-cv-stage${bios ? ' active' : ''}`}>CLAHE</span>
-            <span className={`nd-cv-stage${bios?.textRegions ? ' active' : ''}`}>CC</span>
-          </div>
-
           {/* BIOS 화면 정면화 (모듈 1) */}
           <div className="nd-cv-panel-row">
             <span className="nd-cv-panel-label">📐 BIOS</span>

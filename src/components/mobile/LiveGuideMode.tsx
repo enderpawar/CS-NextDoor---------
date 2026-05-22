@@ -33,6 +33,7 @@ import GuideContextSelector                  from './GuideContextSelector';
 import GoalInputSheet                        from './GoalInputSheet';
 import GuideBubble                           from './GuideBubble';
 import ShootingGuide                         from './ShootingGuide';
+import CvInsightPanel                        from './CvInsightPanel';
 import type { GuideArTarget, GuideContext, BiosType, GuideOcrRegion, CvFrameInput } from '../../types';
 import { isHwRepairContext } from '../../types';
 import { compareHist }                       from '../../lib/cv/changeDetection';
@@ -752,6 +753,7 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
   const [cvMetrics,     setCvMetrics]     = useState<CvFrameInsightMetrics | null>(null);
   const [biosInsight,   setBiosInsight]   = useState<{ rectified: boolean; textRegions: number; processMs: number } | null>(null);
   const [edgeMapDataUrl, setEdgeMapDataUrl] = useState<string | null>(null);
+  const [showCvPanel,   setShowCvPanel]   = useState(false);
 
   // Thumb-zone 액션 바 상태 (Task 5)
   const [biosType,       setBiosType]       = useState<BiosType | null>(null);
@@ -2080,7 +2082,26 @@ export default function LiveGuideMode({ initialContext = 'GENERAL', initialQuest
             </>
           )}
         </button>
+        <button
+          type="button"
+          className={`nd-cv-status${cvReady ? ' ready' : ''}${showCvPanel ? ' panel-open' : ''}`}
+          onClick={() => setShowCvPanel(open => !open)}
+          aria-label={showCvPanel ? '자세히 모드 닫기' : '자세히 모드 열기'}
+          aria-pressed={showCvPanel}
+        >
+          CV
+        </button>
       </div>
+      {showCvPanel && (
+        <div className="nd-cv-panel-wrapper">
+          <CvInsightPanel
+            metrics={cvMetrics}
+            bios={biosInsight}
+            cvReady={cvReady}
+            edgeMapDataUrl={edgeMapDataUrl}
+          />
+        </div>
+      )}
       {guide.llmMode === 'mock' && (
         <div
           className={`nd-llm-status-strip ${guide.llmMode}`}
