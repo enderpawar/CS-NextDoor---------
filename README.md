@@ -134,6 +134,74 @@ USB 부팅이나 부팅 우선순위 변경이 필요할 때, PWA 카메라로 B
 
 ---
 
+## 📱 PWA 조작법
+
+배포 링크: [https://nextdoor-cs.vercel.app](https://nextdoor-cs.vercel.app) — 스마트폰 브라우저(iOS Safari / Android Chrome)로 접속하면 카메라/마이크 권한을 요청합니다. HTTPS 환경에서만 동작합니다.
+
+### 1️⃣ 문제 선택 — 빠른 분류 또는 자유 입력
+
+홈 화면에서 자주 발생하는 문제 3가지를 빠른 카드로 고를 수 있고, 그 외엔 자유롭게 증상을 입력하면 됩니다.
+
+| 빠른 카드 | 언제 사용 | 자동 매핑되는 가이드 컨텍스트 |
+|---|---|---|
+| 🔌 **부팅이 안 돼요** | 검은 화면, 로고 멈춤, 전원만 들어옴 | `NO_BOOT` |
+| ⚠️ **오류 화면이 떠요** | 블루스크린, 경고창, 멈춘 화면 | `BLUE_SCREEN` |
+| 🖥️ **본체 내부를 확인하고 싶어요** | RAM·GPU·케이블 점검이 필요할 때 | `HW_REPAIR_RAM` |
+| ✏️ **직접 입력** | 위 카드에 안 맞는 경우 | 입력 텍스트로 컨텍스트 자동 추론 (`inferGuideContextFromText`) |
+
+증상 입력 칸은 비워둬도 됩니다. 그 경우 **화면부터 보기** 모드로 진입해 카메라가 본 화면을 단서로 같이 분류합니다.
+
+### 2️⃣ 작업 목표 선택 — 가이드 컨텍스트
+
+증상에 맞춰 6개의 작업 목표 중 하나가 자동 선택되거나, 직접 고를 수 있습니다. 컨텍스트에 따라 Gemini가 받는 system prompt와 STATIC_FIRST_GUIDE(첫 안내 문장)가 달라집니다.
+
+| 컨텍스트 | 다루는 작업 |
+|---|---|
+| ⌨ **BIOS·부팅 설정** | BIOS 진입, USB 부팅, Secure Boot, Boot Priority 변경 |
+| ! **블루스크린** | 오류 코드 분석, 자동 재부팅 원인 추적 |
+| ⌁ **인터넷 문제** | Wi-Fi·랜선·DNS·공유기 확인 |
+| ▣ **앱 실행 안 됨** | 앱 오류, 설치 실패, 무반응 해결 |
+| 🛠️ **RAM 재장착** | 메모리 분리·접점 청소·재삽입 |
+| 🛠️ **GPU 재장착** | 그래픽카드 분리·전원 연결·재삽입 |
+
+### 3️⃣ 입력 모드 — 카메라 vs 갤러리
+
+| 모드 | 사용 시점 | 처리 방식 |
+|---|---|---|
+| 📷 **라이브 카메라** | 지금 PC 앞에 있을 때 | 후면 카메라(`facingMode: environment`) → 실시간 OpenCV 게이팅 + AR 오버레이 |
+| 🖼️ **갤러리 업로드** | 이전에 찍어둔 사진/영상 분석 | 사진 1장 또는 동영상 → 같은 CV 파이프라인을 batch로 실행 |
+
+### 4️⃣ 촬영 조작 — 탭 vs 길게 누름
+
+라이브 카메라 모드에서는 **단일 캡처 버튼이 짧게/길게 누름에 따라 두 가지 모드로 분기**됩니다.
+
+| 조작 | 동작 | 사용 시점 |
+|---|---|---|
+| 👆 **짧게 탭** | 사진 1장 캡처 → OpenCV 전처리 후 Gemini Vision 호출 | BIOS 메뉴 등 **정지 화면** 분석 |
+| 👆 **길게 누름 (≥ 650ms)** | 4초 클립 녹화 → OpenCV가 ~32장 채점 후 **상위 5장 + 대표 1장**만 Gemini로 전송 | LED 깜박임, 팬 회전, 비프음, 부팅 시퀀스 같은 **시간성 신호** 분석 |
+| ✋ **자동 라이브 게이트** | 별도 조작 없이도 화면 전환 시 자동 캡처 | 메뉴를 빠르게 넘기는 동안 OpenCV가 변화 감지로 자동 선별 |
+
+라이브 모드 중에도 모듈 3 품질 게이트가 **"흔들렸어요" / "너무 어두워요"** 같은 즉시 피드백을 화면 하단에 표시해 다시 비추도록 안내합니다.
+
+### 5️⃣ 결과 보기 — AR 오버레이 + 단계별 안내
+
+응답은 두 가지 형태로 동시에 표시됩니다.
+
+- **GuideBubble (텍스트)** — Gemini의 자연어 안내가 SSE로 스트리밍되며 단계별로 누적됩니다. 첫 응답이 도착하기 전에는 컨텍스트별 정적 첫 안내(`STATIC_FIRST_GUIDE`)가 즉시 표시됩니다.
+- **AR 박스 (좌표)** — Gemini가 선택한 `targetId` 또는 normalized `bbox`를 OpenCV가 만든 좌표계에 매핑해 카메라 영상 위에 SVG로 표시합니다. **화면 위에서 어디를 눌러야 하는지 직접 가리킵니다.**
+
+응답을 기다리는 동안 📸 캡처됨 → ⏳ 분석 중 + 경과 시간(3초/7초 시 보조 메시지) 3단계 피드백이 표시됩니다.
+
+### 6️⃣ 세션 종료
+
+- 사용자가 직접 종료 버튼을 누르거나
+- Gemini 응답에 `[완료]` 태그가 포함되면 자동 종료되고
+- 15분 무응답 시 백엔드에서 자동으로 세션이 소멸합니다.
+
+> 📌 **iOS 사용 시 주의**: iOS Safari는 페이지 이동 시 카메라 권한이 즉시 해제됩니다. 본 PWA는 라우팅 없이 state 전환만으로 모든 화면을 전환합니다.
+
+---
+
 ## 🏗️ 시스템 아키텍처
 
 ```mermaid
@@ -260,7 +328,7 @@ OpenCV는 백그라운드에서 한 번 실행되는 데모 코드가 아니라,
 | 상위 5장 dedup + 요약 | ~250 KB | ~1,300 (258 × 5) | ~250 | 4~8 s | ✅ |
 | **대표 1장 + cvSummary (현재 설계)** | **~50 KB** | **~258** | **~250** | **2~5 s** | **✅** |
 
-¹ Gemini 3.5 기준 768×768 미만 이미지는 이미지당 258 토큰 고정. 영상 입력은 약 1 fps 샘플링으로 토큰화된다는 공식 가이드를 토대로 산정. 출처: [Gemini API — Image/Video understanding](https://ai.google.dev/gemini-api/docs/vision).
+¹ Gemini 3.5 기준 768×768 미만 이미지는 이미지당 258 토큰 고정. 영상 입력은 약 1 fps 샘플링으로 토큰화된다는 기준으로 산정.
 ² `cvSummary` 메타데이터(brightnessPulseHz, sceneChangeCount, ledBlinkLikely, audio peak/rms, captureMode 등)와 OCR 후보 JSON의 대략적 합산.
 ³ Spring Boot → Gemini → SSE 왕복 합산. 실측 아님 — 모바일 LTE에서의 업로드 시간 + 모델 추론 시간 일반 범위.
 
@@ -337,22 +405,26 @@ OpenCV는 백그라운드에서 한 번 실행되는 데모 코드가 아니라,
 </details>
 
 <details>
-<summary><strong>Ablation Study — 단계별 기여도 (실촬영 22장 proxy)</strong></summary>
+<summary><strong>⚠️ Ablation Study — text-ROI yield (proxy 지표, Tesseract-free 환경 산출)</strong></summary>
 
 <br>
 
+> 🔍 **차트 읽는 법 — proxy 지표 한계 명시**
+> 이 차트의 y축은 **OCR Recall이 아니라 text-ROI 후보 개수**입니다. ROI 개수가 적다고 더 나쁘다는 뜻이 아니며(노이즈 제거 후 신뢰도 높은 후보만 남기는 게 목적), 반대로 많다고 더 좋다는 뜻도 아닙니다. 실제 OCR 정확도에 대한 정량 평가는 **바로 다음 details의 [OCR 키워드 Recall Ablation](#-cv-모듈)** 에서 Tesseract 5.4 기준으로 별도로 측정했습니다.
+> 또한 본 프로젝트의 전처리 파이프라인은 Tesseract OCR뿐 아니라 **Gemini Vision 입력 정규화**도 목적이므로, "ROI 수 = 품질"이라는 단순 해석은 본 설계 의도와 다릅니다.
+
 로컬 Tesseract가 없는 환경에서는 OCR 점수가 0으로 기록되어 정량 비교 의미가 사라집니다. 대신 같은 22장 실촬영 프레임에 대해 16개 파이프라인 조합을 모두 실행하고, OCR 직전 단계인 **텍스트 ROI 후보 개수**(connected components 중 텍스트 모양 조건을 만족하는 것)를 proxy로 측정했습니다.
 
-![BIOS Ablation (real capture, text-ROI yield)](docs/ablation-results/bios-ablation.png)
+![BIOS Ablation (real capture, text-ROI yield — proxy only)](docs/ablation-results/bios-ablation.png)
 
 | 단계 조합 (homography/clahe/threshold/components) | 평균 텍스트 ROI 후보 | 해석 |
 |---|---:|---|
-| `0011` ~ `0000` (homography off) | **159** | 원본 프레임이 그대로 유지되어 가장 많은 후보 생성. 단 환경 노이즈 포함 |
+| `0011` ~ `0000` (homography off) | **159** | 원본 프레임이 그대로 유지되어 가장 많은 후보 생성. 단 환경 노이즈(키보드·모니터 반사) 포함 |
 | `1000` ~ `1011` (homography on, CLAHE off) | 143 | 정면화 시 일부 영역이 잘려 후보 감소 |
 | **`1111` 전체 파이프라인** | **113** | 정면화 + CLAHE + Threshold + CC 필터 후 가장 신뢰도 높은 후보만 잔존 |
 | `0100` ~ `0111` (CLAHE only, no homography) | 102 | CLAHE 후 후속 단계 없으면 후보 응집 부족 |
 
-> 절대 ROI 수가 많다고 좋은 게 아니라, **노이즈가 제거된 신뢰도 높은 후보**가 OCR에 유리합니다. 위 차트는 환경 노이즈(키보드·모니터 반사)를 포함한 22장에서 측정한 값이므로, 전체 파이프라인(`1111`)의 113개가 실제 사용에 가장 적합한 값입니다.
+> 위 표의 113은 절대값으로 평가할 수 없고, 다음 절의 OCR Recall과 함께 봐야 의미가 있습니다.
 
 상세 데이터: [`bios-ablation.csv`](docs/ablation-results/bios-ablation.csv) · 재실행: `python notebooks/regenerate_real_bios_charts.py`
 
@@ -443,22 +515,28 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 </details>
 
 <details>
-<summary><strong>CLAHE 파라미터 그리드 서치 (실촬영 22장 proxy)</strong></summary>
+<summary><strong>⚠️ CLAHE 파라미터 그리드 서치 — text-ROI yield (proxy 지표)</strong></summary>
 
 <br>
 
+> 🔍 **차트 읽는 법 — proxy 지표 한계 명시**
+> 히트맵의 셀 값은 **OCR 정확도가 아니라 text-ROI 후보 개수**입니다. 가장 노란 셀(clipLimit=4.0, tileGrid=8, **207개**)이 "가장 좋은" 파라미터가 아니라 "후보를 가장 많이 만드는" 파라미터입니다. ROI 수가 늘면 노이즈(반사·키보드 모서리·모니터 베젤)도 함께 증가하므로, 단순 최대값 채택은 false positive를 늘립니다.
+
 `clipLimit` × `tileGridSize` × `adaptiveBlock` × `C` 144조합을 실제 22장 BIOS 촬영본에 모두 적용하고, OCR 직전 단계에서 분리된 평균 텍스트 ROI 개수를 측정했습니다(아래 히트맵은 각 `(clipLimit, tileGridSize)` 쌍이 만든 최대값입니다).
 
-![CLAHE Grid Search (real capture)](docs/ablation-results/bios-clahe-gridsearch.png)
+![CLAHE Grid Search (real capture, text-ROI yield — proxy only)](docs/ablation-results/bios-clahe-gridsearch.png)
 
 | clipLimit | tileGrid | 평균 텍스트 ROI (실측) | 해석 |
 |---|---|---:|---|
 | 1.0 | 4 / 8 | 204 / 202 | 과소 보정이라도 본래 대비가 있어 후보 다수 |
-| 2.0 | 4 / 8 / 16 | 173 / 178 / 188 | 표준 권장값 (Pizer et al. 1987) — 노이즈와 신호 균형 |
-| **4.0** | **8** | **207** | **실측 최고치 — 어두운 실촬영 환경에서 텍스트 추출 극대화** |
+| **2.0** | **4 / 8 / 16** | 173 / **178** / 188 | **채택값** — 표준 권장값 (Pizer et al. 1987), 노이즈와 신호 균형 |
+| 4.0 | 8 | 207 | proxy 기준 최대 후보, 단 노이즈도 함께 증가 |
 | 8.0 | 16 | 93 | 과대 보정으로 텍스트가 한 덩어리로 뭉침 |
 
-> **결정**: 본 프로젝트는 `clipLimit=2.0, tileGrid=8`을 채택합니다. 실측 최고치(`clipLimit=4.0`)는 텍스트 ROI 후보를 가장 많이 만들지만 그 안에는 노이즈도 함께 늘어납니다. `clipLimit=2.0`은 학술적으로 검증된 기본값이며 적당한 후보 수를 유지하면서 false positive를 줄이는 절충점입니다.
+> **결정 근거**: 본 프로젝트는 `clipLimit=2.0, tileGrid=8` (178)을 채택합니다. proxy 차트 최대값(`clipLimit=4.0`, 207)을 일부러 피한 이유는 두 가지입니다.
+> 1. **학술적 기본값 우선** — Pizer et al. (1987) 및 OpenCV 공식 권장값(2.0~3.0)이 다양한 조명 조건에서 검증되어 있습니다.
+> 2. **노이즈 증가 위험** — proxy는 ROI "개수"만 측정하며 후보의 품질을 평가하지 않습니다. ClipLimit를 올리면 모니터 반사·키보드 모서리·배경 노이즈까지 ROI로 잡혀 Gemini Vision 입력의 신호 대 잡음 비율이 떨어집니다.
+> 즉 proxy 차트의 시각적 "최고값"과 실제 production 채택값이 다른 것은 의도된 절충입니다.
 
 상세 데이터: [`bios-clahe-gridsearch.csv`](docs/ablation-results/bios-clahe-gridsearch.csv)
 
@@ -489,6 +567,8 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 ![Histogram Heatmap](docs/ablation-results/histogram-heatmap.png)
 
 합성 데이터에서 `CORREL × GRAY × w=5` 조합이 평균 F1 **0.703**으로 최고치를 기록했고, 정상 화면 전환 시나리오에서는 F1 **0.917**까지 도달했습니다. 다만 합성↔실측 간격을 보정하기 위해 별도 영상으로 재측정한 결과 production은 `CORREL × RGB × w=3 × threshold=0.9995`로 채택했습니다.
+
+> ℹ️ **단일 변화 감지기 F1만 보면 약해 보이는 이유**: 실측 영상은 BIOS 화면 간 carry-over 텍스트(공통 헤더·푸터) 때문에 변화 강도가 합성 대비 작아 단일 메트릭 F1이 0.34까지 떨어집니다. 하지만 production 파이프라인은 변화 감지 단독이 아니라 **모듈 3 quality gate + 2초 cooldown + `isSendingRef` 동시 전송 차단**까지 3단 필터로 묶여 동작하므로, 실제 API 호출 절감 효과는 단일 F1보다 훨씬 큽니다(60초 세션 기준 ▼83%, [📊 정량 평가](#-정량-평가--핵심-성과) 참조). 상세 실측 ablation은 아래 details.
 
 <details>
 <summary><strong>시나리오별 베스트 결과 (합성 데이터)</strong></summary>
@@ -538,9 +618,11 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 | 평균 F1 | 0.703 | **0.340** |
 | ROC AUC (베스트 조합) | n/a | **0.70** |
 
-![Histogram Heatmap — Real Captures](docs/ablation-results/histogram-real-heatmap.png)
+![Histogram ROC — Real (CORREL × RGB), AUC 0.70](docs/ablation-results/histogram-real-roc.png)
 
-![Histogram ROC — Real (CORREL × RGB)](docs/ablation-results/histogram-real-roc.png)
+> 위 ROC는 best combo(`CORREL × RGB × w=3`)의 단일 시나리오 AUC 0.70을 보여줍니다. 아래 36조합 heatmap은 모든 셀이 F1 ∈ [0.20, 0.34] 범위에 있어 시각적으로 약해 보이지만, 이는 carry-over 텍스트로 인한 변화 강도 약화의 표현일 뿐이며 production 다단 필터로 보강됩니다.
+
+![Histogram Heatmap — Real Captures (all 36 combos, F1 ∈ [0.20, 0.34])](docs/ablation-results/histogram-real-heatmap.png)
 
 > **production 채택**: `BEST_PARAMS = { metric: CORREL, colorSpace: RGB, windowSize: 3, threshold: 0.9995 }` ([`src/lib/cv/changeDetection.ts`](src/lib/cv/changeDetection.ts)).
 > F1 0.34는 단일 변화 감지기 기준이며, production은 추가로 **모듈 3 quality gate + 2초 cooldown + `isSendingRef` 동시 전송 차단**으로 false positive를 다단계 제거합니다.
@@ -605,9 +687,9 @@ Gemini 호출 직전에 흐림/저노출/과노출 프레임을 거부해 비용
 
 ![Quality Blur Comparison](docs/ablation-results/quality-blur-comparison.png)
 
-![Quality ROC](docs/ablation-results/quality-roc.png)
+![Quality ROC — Laplacian variance vs FFT vs Sobel (n=13, 4 good / 9 bad)](docs/ablation-results/quality-roc.png)
 
-![Quality Threshold Tuning](docs/ablation-results/quality-threshold-tuning.png)
+> ⚠️ **소표본 caveat**: 위 ROC는 Wikimedia Commons 13장(good 4 + bad 9) 기준의 **탐색적 평가**입니다. AUC 0.78(Laplacian variance) 자체보다 세 메트릭의 상대 순위(Laplacian > Sobel > FFT)가 신뢰할 만한 결과입니다. 실서비스 임계값 확정은 더 다양한 카메라/조명 데이터셋을 모은 뒤 재측정 예정.
 
 </details>
 
@@ -695,39 +777,6 @@ CV+Gemini는 실제 화면 전환 시점에만 선택적으로 전송:
 
 ---
 
-## ⚠️ 한계 및 Future Work
-
-<details>
-<summary><strong>현재 알려진 한계</strong></summary>
-
-<br>
-
-1. **모듈 1 — GUI BIOS OCR 한계**: Tesseract 5.4로 측정 결과 MSI Click BIOS 5(그래픽 GUI 타입)에서 BIOS 키워드 Recall 19.7%. CLAHE + Adaptive Threshold가 오히려 키워드 Recall 감소(-14.8%p). 텍스트 모드 BIOS(Award/AMI POST 화면)에서는 성능이 더 높을 것으로 예상되나 해당 데이터셋 미수집. 설계 결정: 텍스트 이해는 Gemini Vision에 위임, Tesseract는 벤더 식별에 한정.
-2. **모듈 2 — iOS 자동 초점 취약**: F1=0.621로 5개 시나리오 중 최저. 5프레임 연속으로 부분 완화하나 완전 제거 어려움.
-3. **모듈 3 — 소규모 데이터셋**: 4 good / 9 bad 샘플. 더 다양한 카메라/조명 환경 데이터 추가 시 임계값 재조정 필요.
-4. **카메라 50° 이상 각도**: Hough Line 모서리 검출 신뢰도 하락. 정면화 실패 시 원본 이미지 fallback 처리.
-5. **강한 모니터 반사**: 화면 외곽과 텍스트 component가 배경 노이즈와 섞여 CC 후보가 늘어나고 AR 타깃 후보가 흐려질 수 있음.
-6. **Rolling Shutter 아티팩트**: 모니터 60Hz 주사선과 카메라 센서 타이밍 간섭 시 줄무늬 발생. CLAHE가 부분 완화하나 완전 제거 불가.
-
-</details>
-
-<details>
-<summary><strong>Future Work</strong></summary>
-
-<br>
-
-| 항목 | 우선순위 | 비고 |
-|---|---|---|
-| 텍스트 모드 BIOS(Award/Phoenix) 데이터셋 수집 + OCR 재측정 | 🥇 | 모듈 1 GUI BIOS 한계 보완 |
-| 모듈 4 — 비프음 멜 스펙트로그램 분류 | 🥈 | `notebooks/04-beep-spectrogram.ipynb` |
-| Phase 9 — MCP 매뉴얼 툴 연동 | 🔽 | CV 무관 (Future Work) |
-| Phase 10 — DB 이력 + 지식베이스 | 🔽 | CV 무관 (Future Work) |
-| Phase 11 — QR 세션 인증 + WebSocket | 🔽 | CV 무관 (Future Work) |
-
-</details>
-
----
-
 ## 🛠️ 설치 및 실행
 
 <details>
@@ -739,7 +788,7 @@ CV+Gemini는 실제 화면 전환 시점에만 선택적으로 전송:
 
 ```powershell
 $env:GEMINI_API_KEY="your-gemini-api-key"
-$env:GEMINI_MODEL="gemini-3.1-pro-preview"   # 없으면 gemini-2.0-flash
+$env:GEMINI_MODEL="gemini-3.5-flash"
 $env:ALLOWED_ORIGINS="http://localhost:3000"
 $env:VITE_API_BASE_URL="http://localhost:8080"
 $env:VITE_USE_MOCK="false"
@@ -824,28 +873,38 @@ VERCEL_PROJECT_ID=prj_9TXCnadCXqxGgs5fqwuijMkhya1f
 </details>
 
 <details>
-<summary><strong>Render 백엔드 배포</strong></summary>
+<summary><strong>Railway 백엔드 배포</strong></summary>
 
 <br>
 
-Spring Boot 백엔드는 `render.yaml` Blueprint와 `backend/Dockerfile`로 배포합니다.
+Spring Boot 백엔드는 `railway.json` 설정과 `backend/Dockerfile`로 Railway에 배포합니다. `railway.json`은 Dockerfile 빌더와 `/api/health` 헬스체크(타임아웃 300s, 실패 시 최대 3회 재시도)를 지정합니다.
 
-Render Dashboard에서 New → Blueprint를 선택하고 이 GitHub 저장소를 연결하면 `nextdoor-cs-api` 웹 서비스가 생성됩니다. 기본 배포 URL은 아래 형태입니다.
+#### 배포 절차
+
+1. [Railway Dashboard](https://railway.app)에서 **New Project → Deploy from GitHub repo**를 선택하고 이 저장소를 연결합니다.
+2. Railway가 `railway.json`을 자동으로 감지해 `backend/Dockerfile`로 빌드합니다.
+3. 서비스 설정에서 **Generate Domain**을 눌러 공개 도메인을 발급합니다. 기본 URL은 아래 형태입니다.
 
 ```text
-https://nextdoor-cs-api.onrender.com
+https://<service-name>.up.railway.app
 ```
 
-Render 서비스 환경 변수:
+#### 환경 변수
+
+Railway 서비스의 **Variables** 탭에서 등록합니다.
 
 ```text
 GEMINI_API_KEY=<실제 Gemini API key>
-GEMINI_MODEL=gemini-3.1-pro-preview
+GEMINI_MODEL=gemini-3.5-flash
 RATE_LIMIT_DAILY=5
 ALLOWED_ORIGINS=https://nextdoor-cs.vercel.app
 ```
 
-배포 후 Vercel 환경 변수의 `VITE_API_BASE_URL`을 Render 백엔드 URL로 설정하고 프론트엔드를 재배포하세요.
+> `PORT`는 Railway가 자동으로 주입하므로 별도 지정할 필요가 없습니다. Dockerfile은 `EXPOSE 8080`이지만 Spring Boot는 `PORT` 환경 변수를 따릅니다.
+
+#### 배포 후 프론트엔드 연결
+
+Vercel 환경 변수의 `VITE_API_BASE_URL`을 Railway 백엔드 URL로 설정하고 프론트엔드를 재배포하세요. CORS 충돌이 나면 Railway의 `ALLOWED_ORIGINS`에 Vercel Production URL이 정확히 포함되었는지 확인합니다.
 
 </details>
 
@@ -880,69 +939,6 @@ nextdoor-cs/
 │   └── ablation-results/     ← 정량 평가 CSV + PNG
 └── backend/                  ← Spring Boot (Gemini + LiveGuideService)
 ```
-
-</details>
-
----
-
-## 📚 References
-
-<details>
-<summary><strong>알고리즘 원논문</strong></summary>
-
-<br>
-
-- Hough, P. V. C. (1962). *Method and Means for Recognizing Complex Patterns*. US Patent 3,069,654.
-- Pizer, S. M., et al. (1987). *Adaptive histogram equalization and its variations*. Computer Vision, Graphics, and Image Processing, 39(3), 355–368.
-- Otsu, N. (1979). *A threshold selection method from gray-level histograms*. IEEE Transactions on Systems, Man, and Cybernetics, 9(1), 62–66.
-- Bradley, D., & Roth, G. (2007). *Adaptive Thresholding Using the Integral Image*. Journal of Graphics Tools, 12(2), 13–21.
-- Smith, R. (2007). *An Overview of the Tesseract OCR Engine*. ICDAR 2007.
-- Swain, M. J., & Ballard, D. H. (1991). *Color Indexing*. International Journal of Computer Vision, 7(1), 11–32.
-- Farnebäck, G. (2003). *Two-Frame Motion Estimation Based on Polynomial Expansion*. SCIA 2003, LNCS 2749, 363–370.
-- Pertuz, S., Puig, D., & Garcia, M. A. (2013). *Analysis of focus measure operators for shape-from-focus*. Pattern Recognition, 46(5), 1415–1432.
-
-</details>
-
-<details>
-<summary><strong>라이브러리</strong></summary>
-
-<br>
-
-- OpenCV 4.x — https://opencv.org (BSD License)
-- OpenCV.js — https://docs.opencv.org/4.x/d5/d10/tutorial_js_root.html
-- Tesseract.js 5.x — https://github.com/naptha/tesseract.js (Apache 2.0)
-- React 18 — https://react.dev
-- Spring Boot 3.x — https://spring.io/projects/spring-boot
-- Google Gemini API — https://ai.google.dev
-
-</details>
-
-<details>
-<summary><strong>참고 자료</strong></summary>
-
-<br>
-
-- OpenCV Tutorial — `cv::compareHist`: https://docs.opencv.org/4.x/d8/dc8/tutorial_histogram_comparison.html
-- OpenCV Tutorial — Adaptive Thresholding: https://docs.opencv.org/4.x/d7/d4d/tutorial_py_thresholding.html
-- OpenCV Tutorial — Hough Line Transform: https://docs.opencv.org/4.x/d9/db0/tutorial_hough_lines.html
-- OpenCV Tutorial — CLAHE: https://docs.opencv.org/4.x/d6/db6/classcv_1_1CLAHE.html
-- PyImageSearch — Adaptive Thresholding: https://pyimagesearch.com/2021/05/12/adaptive-thresholding-with-opencv/
-- MDN Web Docs — MediaRecorder API: https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder
-- MDN Web Docs — Server-Sent Events: https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events
-
-</details>
-
-<details>
-<summary><strong>데이터셋</strong></summary>
-
-<br>
-
-Wikimedia Commons (CC BY-SA) — 모듈 3 품질 필터 테스트 이미지:
-
-- https://commons.wikimedia.org/wiki/File:Capacitors_on_a_motherboard.jpg
-- https://commons.wikimedia.org/wiki/File:Intel_uATX_socket_1150.JPG
-- https://commons.wikimedia.org/wiki/File:Apple_Macintosh_II_motherboard.jpg
-- https://commons.wikimedia.org/wiki/File:Award_BIOS_EPROM.jpg
 
 </details>
 
