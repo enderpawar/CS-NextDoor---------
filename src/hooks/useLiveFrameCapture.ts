@@ -182,17 +182,28 @@ export function useLiveFrameCapture({
       data:   rgba.data,
     };
     const metrics = analyzeFrame(frameInput);
+    const now = performance.now();
+
+    const emitMetricsUpdate = () => {
+      if (!onMetricsUpdate || now - lastMetricsRef.current <= 300) return;
+      lastMetricsRef.current = now;
+      onMetricsUpdate({
+        qualityScore: metrics.qualityScore,
+        changeCount:  Math.min(changeCountRef.current, BEST_PARAMS.windowSize),
+        histScore:    lastHistScoreRef.current,
+      });
+    };
 
     if (!metrics.isUsable || metrics.qualityScore < minQualityScore) {
       // 사용자 요청: 흔들림(stabilize) 같은 경우에만 메시지 노출. 나머지는 조용히 프레임만 거부.
       emitQualityFeedback(metrics.guidance === 'stabilize' ? metrics.guidanceText : '');
+      changeCountRef.current = 0;
+      emitMetricsUpdate();
       rafRef.current = requestAnimationFrame(processFrame);
       return;
     }
 
     emitQualityFeedback('');
-
-    const now = performance.now();
 
     // ── AR overlay 업데이트: 기본 700ms 주기 (히스토그램 변화와 독립) ───────
     // BIOS Hough 모서리 + CC 텍스트 라인 + Canny edge map을 일정 간격으로 갱신.
@@ -225,6 +236,7 @@ export function useLiveFrameCapture({
     try {
       hist = computeHistogram(rgba, BEST_PARAMS.colorSpace);
     } catch {
+      emitMetricsUpdate();
       rafRef.current = requestAnimationFrame(processFrame);
       return;
     }
@@ -234,19 +246,23 @@ export function useLiveFrameCapture({
     currentHistRef.current = hist.clone();
 
     const cooledDown = now - lastSentRef.current > cooldownMs;
+    let changedForSend = false;
 
     if (!prevHistRef.current) {
       prevHistRef.current = hist.clone();
-    } else if (cooledDown && !isSendingRef.current) {
+    } else {
       const score   = compareHist(prevHistRef.current, hist);
       const changed = isSceneChanged(score, BEST_PARAMS.metric, histThreshold);
 
-      lastHistScoreRef.current = score;  // 메트릭 패널용 저장
+      // CV Insight 패널용 유사도는 Gemini 전송 cooldown과 분리해서 실제 라이브 프레임마다 갱신한다.
+      lastHistScoreRef.current = score;
 
       if (changed) {
         changeCountRef.current++;
-        // 연속 3프레임 모두 변화 시에만 다음 단계 (false positive — 손 떨림/Rolling Shutter 차단)
-        if (changeCountRef.current >= BEST_PARAMS.windowSize) {
+        changedForSend = changeCountRef.current >= BEST_PARAMS.windowSize;
+        // 연속 3프레임 모두 변화하고 전송 cooldown이 끝났을 때만 다음 단계
+        // (false positive — 손 떨림/Rolling Shutter 차단)
+        if (changedForSend && cooledDown && !isSendingRef.current) {
           changeCountRef.current = 0;
           prevHistRef.current.delete();
           prevHistRef.current = hist.clone();
@@ -332,14 +348,7 @@ export function useLiveFrameCapture({
     }
 
     // ── CV Insight 메트릭 스로틀 업데이트 (300ms) ──────────────────────────────
-    if (onMetricsUpdate && now - lastMetricsRef.current > 300) {
-      lastMetricsRef.current = now;
-      onMetricsUpdate({
-        qualityScore: metrics.qualityScore,
-        changeCount:  changeCountRef.current,
-        histScore:    lastHistScoreRef.current,
-      });
-    }
+    emitMetricsUpdate();
 
     hist.delete();
     rafRef.current = requestAnimationFrame(processFrame);

@@ -199,33 +199,6 @@ const DEFAULT_CAMERA_OPTION: ProblemOption = {
   question: '',
 };
 
-const HERO_QUICK_OPTIONS: ProblemOption[] = [
-  {
-    id: 'quick-black-screen',
-    icon: <Power size={16}/>,
-    title: '검은 화면',
-    sub: '전원·로고',
-    context: 'NO_BOOT',
-    question: '검은 화면 상태예요. 전원 LED, 모니터 신호, 제조사 로고 표시 여부부터 확인해주세요.',
-  },
-  {
-    id: 'quick-blue-screen',
-    icon: <AlertCircle size={16}/>,
-    title: '블루스크린',
-    sub: '오류 코드',
-    context: 'BLUE_SCREEN',
-    question: '블루스크린이 떠요. 화면의 중지 코드와 오류 문구를 읽고 다음 조치를 안내해주세요.',
-  },
-  {
-    id: 'quick-bios',
-    icon: <Monitor size={16}/>,
-    title: 'BIOS 설정',
-    sub: '부팅 순서',
-    context: 'BIOS_BOOT',
-    question: 'BIOS 또는 부팅 설정 화면이에요. 부팅 순서와 Secure Boot 관련 설정을 확인해주세요.',
-  },
-];
-
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export default function PwaPage({ isStandalone }: Props) {
@@ -667,20 +640,6 @@ export default function PwaPage({ isStandalone }: Props) {
       <div className="nd-pwa-intake-hero">
         <h1>무슨 문제를 도와드릴까요?</h1>
         <p>문제를 고르면 화면을 보면서 다음 조치를 안내합니다.</p>
-        <div className="nd-pwa-intake-examples" aria-label="예시 증상">
-          {HERO_QUICK_OPTIONS.map(option => (
-            <span
-              key={option.id}
-              className="nd-pwa-intake-example-btn"
-            >
-              <span className="nd-pwa-intake-example-icon">{option.icon}</span>
-              <span>
-                <strong>{option.title}</strong>
-                <small>{option.sub}</small>
-              </span>
-            </span>
-          ))}
-        </div>
       </div>
 
       <div className="nd-pwa-intake-mascot" aria-hidden="true">
