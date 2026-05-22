@@ -14,4 +14,4 @@ services:
       - key: RATE_LIMIT_DAILY
         value: "5"
       - key: ALLOWED_ORIGINS
-        value: https://nextdoor-cs.vercel.app
+        value: https://nextdoor-cs.vercel.app,https://nextdoor-*.vercel.app

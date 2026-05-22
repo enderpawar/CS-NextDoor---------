@@ -17,7 +17,7 @@ public class CorsConfig implements WebMvcConfigurer {
         String[] origins = buildOrigins(allowedOrigins);
 
         registry.addMapping("/api/**")
-                .allowedOrigins(origins)
+                .allowedOriginPatterns(origins)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(false)
@@ -28,6 +28,9 @@ public class CorsConfig implements WebMvcConfigurer {
         // Electron은 app:// 또는 file:// 오리진 사용 — 항상 허용
         String[] extra = {"app://.", "file://"};
         String[] env = envOrigins.split(",");
+        for (int i = 0; i < env.length; i += 1) {
+            env[i] = env[i].trim();
+        }
         String[] all = new String[env.length + extra.length];
         System.arraycopy(env, 0, all, 0, env.length);
         System.arraycopy(extra, 0, all, env.length, extra.length);
