@@ -22,15 +22,22 @@ export type HistMetric =
 export type ColorSpace = 'GRAY' | 'HSV' | 'RGB';
 
 /**
- * 2026-05-16 synthetic ablation:
- * CORREL + GRAY + 5프레임 연속 + threshold=0.9999, mean F1=0.7031.
- * 실제 촬영 데이터셋 수집 후 재튜닝 가능.
+ * 2026-05-22 실측 ablation — `notebooks/run_module2_real_ablation.py`.
+ * 입력: `data/live-frames/real/Test_video.mp4` (54s, 1080p, 30fps phone capture, 6 labeled BIOS transitions).
+ *
+ * Best combo: CORREL × RGB × window=3, mean F1=0.34, ROC AUC=0.70.
+ * - synthetic ablation의 threshold=0.9999는 합성 영상의 픽셀 단위 동일성에 의존 → 실측 카메라 노이즈·AE·손떨림에서는 비현실적.
+ * - 실측 기반 보정: 0.9999 → 0.9995 (similarity 도메인). 강도 도메인으로는 0.00045.
+ * - colorSpace: GRAY(F1=0.328) → RGB(F1=0.340). 차이는 작지만 RGB가 색조 변화에 추가 정보 활용.
+ * - windowSize: 5 → 3. 더 빠른 반응. cooldown(2s) + 모듈 3 quality gate + isSendingRef가 FP 추가 차단.
+ *
+ * 자세한 비교: docs/ablation-results/histogram-real-heatmap.png, histogram-real-roc.png.
  */
 export const BEST_PARAMS = {
   metric:      'HISTCMP_CORREL' as HistMetric,
-  colorSpace:  'GRAY' as ColorSpace,
-  windowSize:  5,
-  threshold:   0.9999,
+  colorSpace:  'RGB' as ColorSpace,
+  windowSize:  3,
+  threshold:   0.9995,
 } as const;
 
 function metricToOpenCV(m: HistMetric): number {

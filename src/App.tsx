@@ -14,38 +14,84 @@ import './styles/animations.css';
 const CPU_HISTORY_MAX = 60;
 const INTRO_TRANSITION_MS = 820;
 
-// 인트로 로고 — 오비탈 링 + 글로우로 강화
-function IntroLogo() {
-  const size = 96;
+// 인트로 마스코트 — 캐릭터 + 떠다니는 스파클 입자
+const INTRO_SPARKLES: Array<{
+  shape: 'dot' | 'star' | 'diamond' | 'plus';
+  size: number;
+  top: string;
+  left: string;
+  delay: number;
+  drift: number;
+  hue: 'mint' | 'indigo' | 'lilac' | 'sky';
+}> = [
+  { shape: 'star',    size: 14, top: '6%',  left: '14%', delay: 320, drift: 7,  hue: 'mint'   },
+  { shape: 'dot',     size: 8,  top: '12%', left: '78%', delay: 380, drift: 6,  hue: 'indigo' },
+  { shape: 'diamond', size: 10, top: '32%', left: '4%',  delay: 460, drift: 9,  hue: 'sky'    },
+  { shape: 'plus',    size: 12, top: '8%',  left: '52%', delay: 520, drift: 5,  hue: 'lilac'  },
+  { shape: 'dot',     size: 6,  top: '46%', left: '92%', delay: 580, drift: 8,  hue: 'mint'   },
+  { shape: 'star',    size: 11, top: '70%', left: '88%', delay: 640, drift: 6,  hue: 'indigo' },
+  { shape: 'diamond', size: 8,  top: '82%', left: '8%',  delay: 700, drift: 7,  hue: 'lilac'  },
+  { shape: 'dot',     size: 10, top: '64%', left: '20%', delay: 760, drift: 9,  hue: 'sky'    },
+  { shape: 'plus',    size: 9,  top: '40%', left: '72%', delay: 820, drift: 5,  hue: 'mint'   },
+  { shape: 'star',    size: 8,  top: '92%', left: '54%', delay: 880, drift: 6,  hue: 'indigo' },
+  { shape: 'dot',     size: 5,  top: '24%', left: '30%', delay: 940, drift: 4,  hue: 'sky'    },
+];
+
+function Sparkle({ shape }: { shape: 'dot' | 'star' | 'diamond' | 'plus' }) {
+  if (shape === 'star') {
+    return (
+      <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
+        <path d="M12 2.5c.45 3.6 2.4 5.55 6 6-3.6.45-5.55 2.4-6 6-.45-3.6-2.4-5.55-6-6 3.6-.45 5.55-2.4 6-6z" fill="currentColor"/>
+      </svg>
+    );
+  }
+  if (shape === 'diamond') {
+    return (
+      <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
+        <path d="M12 2l5 10-5 10-5-10z" fill="currentColor" opacity="0.85"/>
+      </svg>
+    );
+  }
+  if (shape === 'plus') {
+    return (
+      <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
+        <path d="M12 3v18M3 12h18" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/>
+      </svg>
+    );
+  }
+  return <span className="nd-intro-sparkle-dot" />;
+}
+
+function IntroMascot() {
   return (
-    <div className="nd-intro-logo-stage" style={{ width: size * 2.2, height: size * 2.2 }}>
-      <div className="nd-intro-orbit-ring nd-intro-orbit-ring--outer" aria-hidden="true"/>
-      <div className="nd-intro-orbit-ring nd-intro-orbit-ring--inner" aria-hidden="true"/>
-      <div className="nd-intro-orbit-dot nd-intro-orbit-dot--one" aria-hidden="true"/>
-      <div className="nd-intro-orbit-dot nd-intro-orbit-dot--two" aria-hidden="true"/>
-      <div className="nd-intro-logo-glow" aria-hidden="true"/>
-      <div className="nd-intro-logo-tile" style={{
-        width: size, height: size, borderRadius: size * 0.28,
-        background: 'linear-gradient(155deg, oklch(0.56 0.15 245) 0%, oklch(0.42 0.16 248) 100%)',
-        display: 'grid', placeItems: 'center', position: 'relative', overflow: 'hidden',
-        boxShadow: `0 18px 40px -10px oklch(0.56 0.15 245 / 0.55), 0 0 0 1px rgba(255,255,255,0.08) inset`,
-      }}>
-        <div style={{
-          width: size * 0.56, height: size * 0.42, borderRadius: size * 0.1,
-          background: 'rgba(255,255,255,0.12)',
-          border: '2px solid rgba(255,255,255,0.92)',
-          display: 'grid', placeItems: 'center',
-        }}>
-          <div style={{ width: size * 0.22, height: size * 0.05, borderRadius: size * 0.03, background: '#fff' }}/>
-        </div>
-        <div style={{
-          position: 'absolute', right: size * 0.14, bottom: size * 0.14,
-          width: size * 0.2, height: size * 0.2, borderRadius: '50%',
-          background: 'oklch(0.78 0.13 195)',
-          boxShadow: `0 0 0 ${size * 0.04}px oklch(0.56 0.15 245)`,
-        }}/>
-        <span className="nd-intro-logo-sheen" aria-hidden="true"/>
+    <div className="nd-intro-mascot-stage">
+      <div className="nd-intro-mascot-glow" aria-hidden="true" />
+      <div className="nd-intro-mascot-ring nd-intro-mascot-ring--outer" aria-hidden="true" />
+      <div className="nd-intro-mascot-ring nd-intro-mascot-ring--inner" aria-hidden="true" />
+      <div className="nd-intro-sparkles" aria-hidden="true">
+        {INTRO_SPARKLES.map((s, i) => (
+          <span
+            key={i}
+            className={`nd-intro-sparkle nd-intro-sparkle--${s.shape} nd-intro-sparkle--${s.hue}`}
+            style={{
+              top: s.top,
+              left: s.left,
+              width: s.size,
+              height: s.size,
+              animationDelay: `${s.delay}ms, ${s.delay + 900}ms`,
+              ['--drift' as string]: `${s.drift}px`,
+            }}
+          >
+            <Sparkle shape={s.shape} />
+          </span>
+        ))}
       </div>
+      <img
+        className="nd-intro-mascot-img"
+        src="/brand-mascot.png"
+        alt=""
+        draggable={false}
+      />
     </div>
   );
 }
@@ -192,11 +238,11 @@ export default function App() {
           <div className="nd-intro-aurora nd-intro-aurora--three" aria-hidden="true"/>
 
           <div className="nd-intro-stack">
-            <div className="nd-intro-eyebrow">
-              <span className="nd-intro-eyebrow-dot" aria-hidden="true"/>
-              NEXTDOOR · CS DIAGNOSTIC
-            </div>
-            <IntroLogo />
+            <span className="nd-intro-eyebrow">
+              <span className="nd-intro-eyebrow-dot" aria-hidden="true" />
+              컴공생을 깨우는 중
+            </span>
+            <IntroMascot />
             <div className="nd-intro-wordmark" aria-label="옆집. 컴공생">
               <span className="nd-intro-wordmark-line">
                 <IntroLetters text="옆집" baseDelay={420}/>
@@ -209,9 +255,8 @@ export default function App() {
                 <span className="nd-intro-char nd-intro-space" style={{ animationDelay: `${420 + 3 * 55}ms` }}> </span>
                 <IntroLetters text="컴공생" baseDelay={420 + 4 * 55}/>
               </span>
-              <span className="nd-intro-wordmark-sheen" aria-hidden="true"/>
             </div>
-            <p className="nd-intro-tagline">수리기사 부르기 전, 옆집 컴공생이 먼저 봅니다</p>
+            <p className="nd-intro-tagline">수리기사 부르기 전, 옆집에 한 번 물어보세요</p>
             <div className="nd-intro-progress"><span /></div>
             <div className="nd-intro-cta">
               <span className="nd-intro-cta-glow" aria-hidden="true"/>

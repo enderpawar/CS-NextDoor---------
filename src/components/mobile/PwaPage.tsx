@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertCircle, Camera, CheckCircle2, Cpu, FileImage, ImagePlus, Keyboard, Mic, Monitor, Power, Sparkles,
+  AlertCircle, Camera, CheckCircle2, Cpu, FileImage, ImagePlus, Mic, Monitor, Power, Sparkles,
   ArrowLeft, ArrowRight, Trash2, Wrench,
 } from 'lucide-react';
 import type { GuideContext } from '../../types';
@@ -80,28 +80,20 @@ function inferGuideContextFromText(text: string): GuideContext {
 // ── 공유 서브 컴포넌트 ────────────────────────────────────────────────────────
 
 function AppLogo({ size = 56 }: { size?: number }) {
-  const r = size * 0.28;
   return (
-    <div style={{
-      width: size, height: size, borderRadius: r, flexShrink: 0,
-      background: `linear-gradient(155deg, ${C.brand} 0%, ${C.brandDeep} 100%)`,
-      display: 'grid', placeItems: 'center', position: 'relative', overflow: 'hidden',
-      boxShadow: `0 ${size * 0.12}px ${size * 0.3}px -${size * 0.1}px ${C.brand}55`,
-    }}>
-      <div style={{
-        width: size * 0.56, height: size * 0.42, borderRadius: size * 0.1,
-        background: 'rgba(255,255,255,0.12)',
-        border: `${Math.max(1, size * 0.025)}px solid rgba(255,255,255,0.92)`,
-        display: 'grid', placeItems: 'center',
-      }}>
-        <div style={{ width: size * 0.22, height: size * 0.05, borderRadius: size * 0.03, background: '#fff' }}/>
-      </div>
-      <div style={{
-        position: 'absolute', right: size * 0.14, bottom: size * 0.14,
-        width: size * 0.2, height: size * 0.2, borderRadius: '50%',
-        background: C.accent, boxShadow: `0 0 0 ${size * 0.04}px ${C.brand}`,
-      }}/>
-    </div>
+    <img
+      src="/icons/icon-192.png"
+      alt="옆집 컴공생"
+      width={size}
+      height={size}
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        objectFit: 'contain',
+        display: 'block',
+      }}
+    />
   );
 }
 
@@ -175,14 +167,6 @@ const PROBLEM_OPTIONS: ProblemOption[] = [
     sub: '검은 화면, 로고 멈춤, 전원은 들어오는 상황',
     context: 'NO_BOOT',
     question: '부팅이 안 돼요. 전원 LED, 모니터 화면, 제조사 로고부터 확인해주세요.',
-  },
-  {
-    id: 'bios',
-    icon: <Keyboard size={20}/>,
-    title: 'BIOS/USB 부팅 설정',
-    sub: 'Windows 설치, 부팅 순서, Secure Boot',
-    context: 'BIOS_BOOT',
-    question: 'BIOS 또는 USB 부팅 설정을 도와주세요. 현재 화면에서 다음에 눌러야 할 곳을 알려주세요.',
   },
   {
     id: 'error-screen',
@@ -662,6 +646,10 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
         <h1>무슨 문제를 도와드릴까요?</h1>
         <p>문제를 고르면 바로 카메라 화면에서 다음 조치를 안내합니다.</p>
+      </div>
+
+      <div className="nd-pwa-intake-mascot" aria-hidden="true">
+        <img src="/brand-mascot.png" alt="" />
       </div>
 
       <div className="nd-pwa-intake-sheet">

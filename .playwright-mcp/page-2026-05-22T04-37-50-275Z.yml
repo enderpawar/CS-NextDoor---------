@@ -1,0 +1,72 @@
+- generic [ref=e3]:
+  - button "인트로를 닫고 진단 화면으로 이동" [ref=e4] [cursor=pointer]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: 컴공생을 깨우는 중
+      - generic [ref=e8]:
+        - generic:
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+          - generic:
+            - img
+      - generic "옆집. 컴공생" [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: 옆
+          - generic [ref=e13]: 집
+          - generic [ref=e14]: .
+          - generic [ref=e16]: 컴
+          - generic [ref=e17]: 공
+          - generic [ref=e18]: 생
+      - paragraph [ref=e19]: 수리기사 부르기 전, 옆집에 한 번 물어보세요
+      - generic [ref=e21]:
+        - generic [ref=e22]: 탭하여 시작하기
+        - generic [ref=e23]: →
+  - generic:
+    - generic:
+      - generic:
+        - button "건너뛰기"
+      - generic:
+        - generic:
+          - generic:
+            - img
+            - text: AI 진단 도우미
+          - heading "수리기사 부르기 전, 옆집 컴공생에게 먼저 물어보세요" [level=1]:
+            - text: 수리기사 부르기 전,
+            - text: 옆집 컴공생에게
+            - text: 먼저 물어보세요
+          - paragraph:
+            - text: 카메라·마이크로 PC 증상을 살펴보고,
+            - text: 친구처럼 단계별로 알려드려요.
+        - generic:
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - generic: 카메라로 PC 화면 진단
+              - generic: BIOS · 에러 메시지 · 부팅 화면
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - generic: 비프음으로 하드웨어 진단
+              - generic: 삐 — 삐삐 패턴을 인식해요
+          - generic:
+            - generic:
+              - img
+            - generic:
+              - generic: 증상 단서를 모아 안내해요
+              - generic: 처음 보는 화면도 단계별로 확인
+      - generic:
+        - button "시작하기":
+          - text: 시작하기
+          - img
+        - generic: 이미 사용 중이신가요? 로그인
