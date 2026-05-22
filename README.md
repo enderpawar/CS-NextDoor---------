@@ -1,4 +1,4 @@
-# 옆집 컴공생 (NextDoor CS)
+# 옆집 컴공생 (NextDoor CS) 
 
 <img width="2549" height="1342" alt="image" src="https://github.com/user-attachments/assets/4d16deb5-205c-4ca7-b584-a1fa5e302078" />
 
@@ -6,7 +6,7 @@
 
 > "수리기사 부르기 전, 옆집 컴공생에게 먼저 물어보세요!"
 
-AI 기반 PC 하드웨어 진단 PWA입니다. 스마트폰 카메라·마이크 입력을 OpenCV.js로 선별하고, Gemini Vision이 사용자에게 다음 조치를 안내합니다.
+옆집 컴퓨터 공학과 학생에게 물어보듯, 편하고 세세하게 하드웨어 관련 자문이나 고장을 해결할 수 있는 AI 기반 PC 하드웨어 진단 PWA입니다. 스마트폰 카메라·마이크 입력을 OpenCV.js로 선별하고, Gemini Vision이 사용자에게 다음 조치를 안내합니다.
 
 ---
 
