@@ -25,6 +25,27 @@ AI 기반 PC 하드웨어 진단 PWA입니다. 스마트폰 카메라·마이크
 
 ---
 
+## 💡 왜 만들었나 — Gemini만 쓰지 않은 이유
+
+PC가 갑자기 부팅이 안 되거나, BIOS 설정을 바꿔야 하거나, USB로 윈도우를 다시 설치해야 하는 상황은 비전문가에게 진입 장벽이 매우 높습니다. 검색하면 "Boot Priority를 1순위로 바꾸세요" 같은 텍스트 안내가 나오지만, 메인보드 제조사마다 BIOS UI가 달라서 화면에서 그 메뉴가 정확히 어디에 있는지 찾기가 어렵습니다.
+
+처음 떠올린 단순한 접근은 **"스마트폰으로 화면을 찍어서 Gemini Vision에 물어보면 되지 않을까"**였습니다. 실제로 Gemini는 BIOS 화면을 보고 "Boot Priority 항목을 클릭하세요"라고 답할 수 있습니다. 하지만 사용자는 여전히 화면 위에서 그 항목을 눈으로 찾아야 합니다. 텍스트 안내가 실제 행동으로 연결되지 않는다는 문제는 그대로 남습니다. 게다가 흐림·반사가 심한 프레임이나 같은 화면이 반복해서 API에 들어가면 비용과 응답 지연이 빠르게 늘어납니다.
+
+그래서 카메라 프레임을 그냥 Gemini에 보내는 대신, 클라이언트 OpenCV가 다음 네 가지를 먼저 처리하도록 설계했습니다.
+
+| OpenCV가 추가로 하는 일 | 얻은 이점 | 정량 근거 |
+|---|---|---|
+| 품질 게이트로 분석 가치 없는 프레임 차단 | LLM 호출 전 흐림·반사·어두운 프레임 제거 | 실촬영 22장 중 14장 거부 (63.6%) |
+| 변화 감지로 같은 화면 중복 호출 차단 | 의미 있는 메뉴 전환에서만 Gemini 호출 | 60초 세션 기준 API 29회 → 5회 (▼83%) |
+| BIOS 화면 구조를 좌표로 추출 | Hough/Homography로 정면화, CC로 텍스트 후보를 bbox와 함께 분리 | 평균 텍스트 ROI 후보 425개, ROI 검출 63.6% |
+| Gemini가 선택한 후보를 AR 박스로 표시 | 자연어 안내가 실제 화면 위의 클릭 위치로 연결 | `targetId`/`bbox` → SVG overlay |
+
+덕분에 최종 결과가 **"Boot Priority를 클릭하세요"라는 텍스트로 끝나지 않고, 화면 위 그 메뉴 위치에 AR 박스가 직접 표시**됩니다. 비용 측면에서도 추정 API 비용이 $1.50/hr에서 $0.26/hr로 줄고, 품질 불량 호출은 100% 제거됩니다.
+
+즉 본 프로젝트에서 OpenCV는 단순한 이미지 보정이 아니라, **LLM 기반 진단을 실제 사용자 행동으로 연결하기 위한 입력 게이트와 좌표 grounding 계층**입니다.
+
+---
+
 ## 🎬 Demo
 
 ### 데모 영상 — 윈도우 설치 전 BIOS 진입 시나리오
@@ -110,18 +131,6 @@ USB 부팅이나 부팅 우선순위 변경이 필요할 때, PWA 카메라로 B
 스트레스 조건(50° 이상 각도, 강한 반사, iOS 자동 초점 흔들림)은 한계 시연 또는 README 한계 항목에서 다루고, 메인 데모는 위 조건으로 촬영합니다.
 
 </details>
-
----
-
-## 🎯 프로젝트 소개
-
-### 문제 정의
-
-PC 부팅 불량·BIOS 설정·시스템 오류는 비전문가에게 진입 장벽이 높습니다. 그러나 수리기사를 부르기 전에 스스로 해결 가능한 경우도 많습니다. 문제는 "지금 화면에서 정확히 어떤 메뉴를 눌러야 하는지"가 불분명하다는 것입니다.
-
-### 솔루션
-
-스마트폰 카메라로 PC 화면을 비추면, OpenCV.js가 프레임을 게이팅하고 BIOS 화면 구조를 추출한 뒤, Gemini Vision이 다음 조작 대상을 선택하고, 앱이 그 위치를 AR 오버레이로 표시합니다. 비프음 진단의 경우 마이크 입력으로 BIOS beep code를 기록하고 제조사별 의미를 해석합니다.
 
 ---
 
@@ -842,35 +851,6 @@ ALLOWED_ORIGINS=https://nextdoor-cs.vercel.app
 
 ---
 
-## 🧊 Desktop Electron 보조 모드
-
-<details>
-<summary><strong>동결 상태의 보조 기능</strong></summary>
-
-<br>
-
-Electron 데스크톱 앱은 현재 **신규 개발 대상이 아닌 보조 모드**입니다. 프로젝트의 핵심 평가 범위는 PWA 카메라 입력과 OpenCV.js 기반 CV 파이프라인이며, Electron은 부팅 가능한 PC에서 OS 시스템 정보를 참고하는 추가 흐름으로만 유지합니다.
-
-현재 Electron이 담당하는 기능:
-
-- CPU/RAM/GPU/디스크 스냅샷 수집
-- Windows 이벤트 로그 조회
-- CPU/메모리 기준 상위 프로세스 조회
-- 소프트웨어 증상 입력 기반 Gemini 가설 생성
-- 재현 모드와 가설 추적 UI
-
-실행이 필요할 때만 아래 명령을 사용합니다.
-
-```powershell
-npm run electron:dev
-```
-
-빌드 스크립트와 코드는 유지하지만, 제출 데모와 README의 주 흐름은 PWA/OpenCV 중심으로 관리합니다.
-
-</details>
-
----
-
 ## 🗂️ 프로젝트 구조
 
 <details>
@@ -932,7 +912,6 @@ nextdoor-cs/
 - OpenCV.js — https://docs.opencv.org/4.x/d5/d10/tutorial_js_root.html
 - Tesseract.js 5.x — https://github.com/naptha/tesseract.js (Apache 2.0)
 - React 18 — https://react.dev
-- Electron 28 — https://www.electronjs.org
 - Spring Boot 3.x — https://spring.io/projects/spring-boot
 - Google Gemini API — https://ai.google.dev
 
