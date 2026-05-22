@@ -68,6 +68,26 @@
   }
 }
 
+.nd-pwa-context-page {
+  --nd-context-cta-lift: clamp(96px, 12.8dvh, 116px);
+}
+
+@media (max-height: 760px) {
+  .nd-pwa-context-page {
+    --nd-context-cta-lift: 78px;
+  }
+}
+
+@media (max-height: 680px) {
+  .nd-pwa-context-page {
+    --nd-context-cta-lift: 50px;
+  }
+
+  .nd-pwa-context-cta {
+    padding-top: 6px !important;
+  }
+}
+
 /* ── PWA intake home — 문제 선택 중심 진입면 ─────────────────────────────── */
 .nd-pwa-intake-page {
   display: flex;

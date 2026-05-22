@@ -541,7 +541,7 @@ export default function PwaPage({ isStandalone }: Props) {
         </div>
 
         {/* 하단 CTA */}
-        <div style={{ padding: '8px 22px max(env(safe-area-inset-bottom,0px), 18px)', background: C.bg, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+        <div className="nd-pwa-context-cta" style={{ padding: '8px 22px calc(max(env(safe-area-inset-bottom,0px), 18px) + var(--nd-context-cta-lift, 108px))', background: C.bg, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button type="button" onClick={() => { setSymptomText(''); setInitialGuideQuestion(''); setSelectedCtx('GENERAL'); navigateTo('live-guide', { replace: true }); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Pretendard, system-ui', fontSize: 15, fontWeight: 700, color: C.inkSoft, padding: '8px 16px' }}>
               ✨ 입력 없이 화면부터 보기
