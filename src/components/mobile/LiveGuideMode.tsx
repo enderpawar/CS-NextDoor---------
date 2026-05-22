@@ -59,7 +59,7 @@ const STATIC_FIRST_GUIDE: Record<GuideContext, string> = {
 };
 
 /** CC 텍스트 후보를 카메라 위에 표시할지. 좌표는 EMA/TTL로 안정화해서 표시한다. */
-const SHOW_CC_DEBUG_REGIONS = true;
+const SHOW_CC_DEBUG_REGIONS = false;
 /** 화면 정면화용 quad 후보는 사용자 안내 타깃과 혼동되므로 기본 숨김. */
 const SHOW_QUAD_DEBUG_OVERLAY = false;
 const LIVE_OCR_OVERLAY_INTERVAL_MS = 900;
