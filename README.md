@@ -1,54 +1,41 @@
 # 옆집 컴공생 (NextDoor CS)
+
 <img width="2549" height="1342" alt="image" src="https://github.com/user-attachments/assets/4d16deb5-205c-4ca7-b584-a1fa5e302078" />
 
 **배포 링크:** https://nextdoor-cs.vercel.app
 
 > "수리기사 부르기 전, 옆집 컴공생에게 먼저 물어보세요!"
 
-AI 기반 PC 하드웨어 진단 PWA.  
-스마트폰 카메라·마이크 입력을 OpenCV.js로 선별하고, Gemini Vision이 사용자의 다음 조치를 안내합니다.
+AI 기반 PC 하드웨어 진단 PWA입니다. 스마트폰 카메라·마이크 입력을 OpenCV.js로 선별하고, Gemini Vision이 사용자에게 다음 조치를 안내합니다.
 
 ---
 
-## ✅ CV Term Project 핵심 요약
+## 한 줄로 보면
 
-이 프로젝트의 핵심은 Gemini Vision 자체가 아니라, **OpenCV.js가 모바일 카메라 입력을 분석 가능한 프레임으로 선별하고, BIOS 화면 구조와 텍스트 후보 좌표를 추출해 Gemini의 판단 범위를 제한하는 컴퓨터 비전 파이프라인**입니다.
+이 프로젝트는 "사진을 Gemini에 보내는 앱"이 아니라, **OpenCV가 카메라 입력을 분석 가능한 프레임으로 게이팅하고, BIOS 화면 구조와 텍스트 후보 좌표를 추출해 Gemini의 판단 범위를 제한하는 컴퓨터 비전 파이프라인**입니다. Gemini는 "어느 후보가 다음 조작 대상인가"를 고르는 의미 판단 계층만 담당하고, OpenCV는 그 전/후의 입력 게이팅과 화면 좌표 grounding을 담당합니다.
 
-Gemini는 최종 자연어 안내와 의미 선택을 담당하지만, 그 전에 OpenCV가 다음 작업을 수행합니다.
-
-| OpenCV 단계 | 사용 알고리즘 | Gemini에 주는 영향 |
-|---|---|---|
-| 품질 게이트 | Laplacian variance, brightness, edge/coverage metric | 흐림·반사·어두운 프레임을 LLM 호출 전에 제거 |
-| 변화 감지 | `compareHist` 기반 histogram correlation | 같은 화면 반복 전송을 줄이고 의미 있는 전환만 분석 |
-| BIOS 구조 추출 | Canny, HoughLinesP, contour quad, Homography/RANSAC | 전체 이미지 대신 BIOS ROI와 화면 좌표계를 제공 |
-| 전처리 | CLAHE, Adaptive Gaussian Threshold | 저대비·불균일 조명 화면에서 텍스트 후보를 분리 |
-| 후보 좌표 생성 | Connected Components, OCR/ROI bbox mapping | Gemini가 고른 `targetId`/`bbox`를 AR 오버레이로 표시 |
-
-즉, 본 프로젝트는 “사진을 Gemini에 보내는 앱”이 아니라, **OpenCV가 입력 게이트와 좌표 grounding을 만들고 Gemini가 그 후보 안에서 다음 행동을 선택하는 구조**입니다.
-
-정량 근거는 실촬영 BIOS 22장과 변화 감지 36조합 ablation으로 제시했습니다.
-
-| 평가 항목 | 결과 |
+| 항목 | 결과 |
 |---|---:|
-| 실촬영 BIOS 프레임 품질 게이트 | 8/22 통과, 14/22 거부 |
-| BIOS ROI/corner 후보 검출 | 14/22 (**63.6%**) |
-| 평균 Hough line 후보 | **740.2개** |
-| 평균 텍스트/에지 ROI 후보 | **425.1개** |
-| 변화 감지 최적 조합 | HISTCMP_CORREL × GRAY × window=5 |
-| 변화 감지 전체 평균 F1 | **0.703** |
-| 정상 화면 전환 F1 | **0.917** |
+| 실촬영 BIOS 22장 품질 게이트 통과 | 8/22 (36.4%) |
+| BIOS ROI/corner 후보 검출 | 14/22 (63.6%) |
+| 변화 감지 평균 F1 (합성 36조합) | **0.703** |
+| 변화 감지 실측 영상 F1 (CORREL+RGB+w=3) | 0.34 / AUC 0.70 |
+| 파이프라인 통합 API 호출 절감 | **29회 → 5회 (▼83%)** |
+| 추정 비용 절감 | $1.50 → $0.26 /hr |
 
 ---
 
 ## 🎬 Demo
-### 데모영상 - 윈도우 설치 전 BIOS 진입 시나리오 
+
+### 데모 영상 — 윈도우 설치 전 BIOS 진입 시나리오
 https://youtu.be/oOzmI5wq_bo?si=dVujNWymE_aA54hQ
 <img width="1910" height="1273" alt="image" src="https://github.com/user-attachments/assets/4f574296-464b-4a0c-b9ff-f55ccc9bcd94" />
-### 데모영상2 - 비프음 3번, 부팅 불가 시나리오 
+
+### 데모 영상 2 — 비프음 3번, 부팅 불가 시나리오
 https://youtube.com/shorts/ui-iWedoapU?si=vh799Z2-139FsLpk
 <img width="1196" height="1223" alt="image" src="https://github.com/user-attachments/assets/949ad3fd-07fa-4a31-b711-c8a7e6532d01" />
 
-> 라이브 카메라 가이드 모드 — PC 화면을 스마트폰으로 비추면 단계별 안내와 AR 타깃 오버레이를 실시간으로 받을 수 있습니다.
+라이브 카메라 가이드 모드 — PC 화면을 스마트폰으로 비추면 단계별 안내와 AR 타깃 오버레이를 실시간으로 받을 수 있습니다.
 
 | 온보딩 | 문제 선택 | 촬영 준비 |
 |:---:|:---:|:---:|
@@ -58,33 +45,14 @@ https://youtube.com/shorts/ui-iWedoapU?si=vh799Z2-139FsLpk
 |:---:|:---:|:---:|
 | <img src="docs/example-img/KakaoTalk_20260522_151727149_06.png" alt="BIOS 화면 인식 중인 라이브 가이드" width="220"> | <img src="docs/example-img/KakaoTalk_20260522_151727149_07.png" alt="Boot Option #1을 AR 오버레이로 안내하는 화면" width="220"> | <img src="docs/example-img/KakaoTalk_20260522_151727149_09.png" alt="USB 부팅 옵션을 AR 오버레이로 안내하는 화면" width="220"> |
 
-<details open>
-<summary><strong>제출 데모 촬영 조건</strong></summary>
-
-<br>
-
-라이브 가이드 데모는 알고리즘이 가장 안정적으로 동작하는 조건에서 촬영합니다. 목적은 "OpenCV가 실시간으로 화면 구조를 잡고 Gemini 안내를 화면 좌표로 연결한다"는 핵심 흐름을 선명하게 보여주는 것입니다.
-
-| 조건 | 권장값 | 이유 |
-|---|---|---|
-| 촬영 각도 | 정면 또는 좌/우 0~15도 | BIOS 외곽선과 텍스트 후보가 가장 안정적으로 검출됨 |
-| 화면 점유율 | 프레임의 70% 이상 | 화면 외곽과 메뉴 텍스트가 충분한 픽셀 크기로 들어옴 |
-| 밝기/반사 | 반사 적은 일반 밝기 | Laplacian/brightness 품질 게이트와 CC 후보 추출 안정화 |
-| 장면 | Boot 탭, Boot Option 팝업, Save & Exit | 정답 메뉴와 AR 타깃이 명확함 |
-| 조작 속도 | 메뉴 전환 후 1초 정도 정지 | CV overlay는 약 700ms마다 갱신되고, Gemini 전송은 명시적 캡처/별도 cooldown으로 분리됨 |
-
-스트레스 조건(50도 이상 각도, 강한 반사, iOS 자동 초점 흔들림)은 한계 시연 또는 README 한계 항목에서 다루고, 메인 데모는 위 조건으로 촬영합니다.
-
-</details>
-
 <details>
-<summary><strong>시나리오 1 — BIOS 부트 순서 변경 도움</strong></summary>
+<summary><strong>📸 추가 시나리오 1 — BIOS 부트 순서 변경</strong></summary>
 
 <br>
 
-이 데모는 사용자가 USB 부팅이나 부팅 우선순위 변경이 필요할 때, PWA 카메라로 BIOS 화면을 비추면서 다음에 눌러야 할 메뉴를 안내받는 흐름을 보여줍니다. 앱은 카메라 프레임에서 BIOS 화면 품질과 변화 여부를 확인하고, OpenCV 전처리로 화면 영역과 텍스트 후보를 정리한 뒤 Gemini Vision에 전달합니다. 이후 Gemini가 `Boot Option #1`, `UEFI USB`, `Save & Exit` 같은 조작 대상을 선택하면, 앱은 해당 위치를 카메라 화면 위에 오버레이로 표시합니다.
+USB 부팅이나 부팅 우선순위 변경이 필요할 때, PWA 카메라로 BIOS 화면을 비추면서 다음에 눌러야 할 메뉴를 안내받는 흐름입니다. 앱은 카메라 프레임의 품질과 변화 여부를 확인하고, OpenCV 전처리로 화면 영역과 텍스트 후보를 정리한 뒤 Gemini Vision에 전달합니다. Gemini가 `Boot Option #1`, `UEFI USB`, `Save & Exit` 같은 조작 대상을 선택하면, 앱은 해당 위치를 카메라 화면 위에 오버레이로 표시합니다.
 
-이 시나리오에서는 단순히 "Boot 메뉴를 누르세요"라고 설명하는 것이 아니라, 실제 촬영 화면 위에서 사용자가 어느 항목을 선택해야 하는지 바로 확인할 수 있는 점을 보여줍니다. 아래 실사용 캡처처럼 CV가 BIOS 화면 영역을 잡고, Gemini가 다음 조작 대상을 선택하면 앱이 해당 위치를 AR 오버레이로 표시합니다.
+단순히 "Boot 메뉴를 누르세요"라는 텍스트가 아니라, 실제 촬영 화면 위에서 어느 항목을 선택해야 하는지 바로 확인할 수 있다는 점이 핵심입니다.
 
 | BIOS Boot 화면 인식 | Boot Option 안내 | Save & Exit 안내 |
 |:---:|:---:|:---:|
@@ -93,15 +61,15 @@ https://youtube.com/shorts/ui-iWedoapU?si=vh799Z2-139FsLpk
 </details>
 
 <details>
-<summary><strong>시나리오 2 — RAM 장착 불량 진단 및 재장착 안내</strong></summary>
+<summary><strong>📸 추가 시나리오 2 — RAM 장착 불량 진단</strong></summary>
 
 <br>
 
-이 데모는 전원은 들어오지만 화면이 나오지 않는 상황에서, 사용자가 본체 내부를 촬영하며 RAM 장착 불량 가능성을 확인하고 조치 안내를 받는 흐름을 보여줍니다. 앱은 먼저 증상과 촬영 화면을 바탕으로 RAM 재장착이 필요한 상황인지 판단하고, 사용자가 본체를 열어 RAM 슬롯 주변을 비출 수 있도록 단계별로 안내합니다.
+전원은 들어오지만 화면이 나오지 않는 상황에서, 사용자가 본체 내부를 촬영하며 RAM 장착 불량 가능성을 확인하고 조치 안내를 받는 흐름입니다. 앱은 증상과 촬영 화면을 바탕으로 RAM 재장착이 필요한 상황인지 판단하고, 사용자가 본체를 열어 RAM 슬롯 주변을 비출 수 있도록 단계별로 안내합니다.
 
-하드웨어 조치가 포함되기 때문에 앱은 먼저 전원 코드 분리, 잔류 전류 제거, 정전기 방전 같은 안전 체크를 안내합니다. 이후 RAM 양쪽 클립을 열어 분리하고, 금색 접점 부위를 마른 천이나 접점 세정제로 조심스럽게 닦은 뒤, 슬롯에 다시 끝까지 밀어 넣어 장착하는 과정을 순서대로 보여줍니다. 현장 응급 조치로 지우개를 사용할 수 있는 경우에도, 가루가 남지 않도록 완전히 제거해야 한다는 점을 함께 안내합니다.
+하드웨어 조치가 포함되기 때문에 전원 코드 분리, 잔류 전류 제거, 정전기 방전 같은 안전 체크를 먼저 안내합니다. 이후 RAM 양쪽 클립을 열어 분리하고, 금색 접점을 마른 천이나 접점 세정제로 닦은 뒤, 슬롯에 다시 끝까지 밀어 넣는 과정을 순서대로 보여줍니다. 현장 응급 조치로 지우개를 사용할 수 있는 경우에도 가루가 남지 않도록 완전히 제거해야 한다는 점을 함께 안내합니다.
 
-이 시나리오에서는 OpenCV가 부품을 직접 분류하기보다는 촬영 품질과 화면 변화 여부를 관리하고, Gemini Vision이 사용자의 증상과 촬영 화면을 바탕으로 다음 행동을 안내하는 구조를 보여줍니다. 현재 앱 화면에서는 사용자가 직접 증상을 입력하거나 카메라 분석을 시작한 뒤, 촬영된 화면과 목표 문맥을 함께 사용해 단계별 조치를 받는 흐름으로 연결됩니다.
+이 시나리오는 OpenCV가 부품을 직접 분류하지 않고 촬영 품질과 화면 변화 여부만 관리하며, 의미 판단은 Gemini Vision이 담당하는 구조를 보여줍니다.
 
 | 증상 입력 | 입력 없이 카메라 시작 | 라이브 촬영 목표 설정 |
 |:---:|:---:|:---:|
@@ -110,7 +78,7 @@ https://youtube.com/shorts/ui-iWedoapU?si=vh799Z2-139FsLpk
 </details>
 
 <details>
-<summary><strong>PWA 화면 스크린샷</strong></summary>
+<summary><strong>📸 PWA 화면 스크린샷 모음</strong></summary>
 
 <br>
 
@@ -124,19 +92,36 @@ https://youtube.com/shorts/ui-iWedoapU?si=vh799Z2-139FsLpk
 
 </details>
 
+<details>
+<summary><strong>🎥 제출 데모 촬영 조건</strong></summary>
+
+<br>
+
+라이브 가이드 데모는 알고리즘이 가장 안정적으로 동작하는 조건에서 촬영합니다. 목적은 "OpenCV가 실시간으로 화면 구조를 잡고 Gemini 안내를 화면 좌표로 연결한다"는 핵심 흐름을 선명하게 보여주는 것입니다.
+
+| 조건 | 권장값 | 이유 |
+|---|---|---|
+| 촬영 각도 | 정면 또는 좌/우 0~15° | BIOS 외곽선과 텍스트 후보가 가장 안정적으로 검출됨 |
+| 화면 점유율 | 프레임의 70% 이상 | 화면 외곽과 메뉴 텍스트가 충분한 픽셀 크기로 들어옴 |
+| 밝기/반사 | 반사 적은 일반 밝기 | Laplacian/brightness 품질 게이트와 CC 후보 추출 안정화 |
+| 장면 | Boot 탭, Boot Option 팝업, Save & Exit | 정답 메뉴와 AR 타깃이 명확함 |
+| 조작 속도 | 메뉴 전환 후 1초 정도 정지 | CV overlay는 약 700ms마다 갱신되고, Gemini 전송은 명시적 캡처/별도 cooldown으로 분리됨 |
+
+스트레스 조건(50° 이상 각도, 강한 반사, iOS 자동 초점 흔들림)은 한계 시연 또는 README 한계 항목에서 다루고, 메인 데모는 위 조건으로 촬영합니다.
+
+</details>
+
 ---
 
 ## 🎯 프로젝트 소개
 
 ### 문제 정의
 
-PC 부팅 불량·BIOS 설정·시스템 오류는 비전문가에게 높은 진입 장벽이 있으며, 수리기사를 부르기 전 스스로 해결 가능한 경우가 많습니다.
+PC 부팅 불량·BIOS 설정·시스템 오류는 비전문가에게 진입 장벽이 높습니다. 그러나 수리기사를 부르기 전에 스스로 해결 가능한 경우도 많습니다. 문제는 "지금 화면에서 정확히 어떤 메뉴를 눌러야 하는지"가 불분명하다는 것입니다.
 
 ### 솔루션
 
-1. **Mobile PWA** — 스마트폰 카메라로 PC 화면을 비추면 OpenCV 전처리 후 Gemini Vision이 단계별 안내
-2. **비프음 진단** — 마이크 입력으로 BIOS beep code를 기록하고 제조사별 의미를 해석
-3. **컴퓨터 비전 파이프라인** — 3개 CV 모듈이 Gemini 호출 직전 게이트로 동작, 비용 절감 + 정확도 향상
+스마트폰 카메라로 PC 화면을 비추면, OpenCV.js가 프레임을 게이팅하고 BIOS 화면 구조를 추출한 뒤, Gemini Vision이 다음 조작 대상을 선택하고, 앱이 그 위치를 AR 오버레이로 표시합니다. 비프음 진단의 경우 마이크 입력으로 BIOS beep code를 기록하고 제조사별 의미를 해석합니다.
 
 ---
 
@@ -172,85 +157,9 @@ graph TB
 
 ## 🔬 컴퓨터 비전 파이프라인
 
-### CV-first 설계 원칙
+### 핵심 아이디어 — Gemini는 "무엇을", OpenCV는 "어디에"
 
-채점 기준상 중요한 부분은 OpenCV와 Gemini의 역할 분리입니다. 본 프로젝트에서 **Gemini는 원본 이미지를 무제한으로 해석하는 주체가 아닙니다.** OpenCV가 먼저 프레임 품질, 변화 여부, BIOS 화면 영역, 텍스트/에지 후보 좌표를 계산하고, Gemini는 이 결과를 함께 받아 “어느 후보가 사용자의 목표에 맞는 다음 조작 대상인가”를 선택합니다.
-
-따라서 컴퓨터 비전의 역할은 보조 장식이 아니라 다음 세 가지입니다.
-
-1. **입력 선택**: 분석 가치가 낮은 프레임을 Gemini 호출 전에 제거합니다.
-2. **공간 구조화**: BIOS 화면과 후보 텍스트 영역을 픽셀 좌표로 변환합니다.
-3. **행동 연결**: Gemini의 자연어 판단을 실제 카메라 화면의 AR 박스로 연결합니다.
-
-이 구조 때문에 최종 안내가 “Boot Option을 누르세요”라는 문장으로 끝나지 않고, OpenCV가 만든 좌표계 위에서 사용자가 눌러야 할 위치까지 표시됩니다.
-
-### 배포 앱에서 OpenCV가 실제로 동작하는 지점
-
-배포된 PWA에서 사용자가 라이브 가이드 모드로 들어가면, 카메라 프레임은 바로 Gemini로 전송되지 않습니다. 먼저 브라우저에서 OpenCV.js가 로드되고, 캔버스의 `ImageData`가 아래 순서로 처리됩니다.
-
-| 시점 | 실행되는 CV 처리 | 앱에서 보이는 결과 | 구현 위치 |
-|---|---|---|---|
-| PWA 진입 | `/opencv.js` WASM 로드 및 ready 상태 관리 | OpenCV 준비 상태에 따라 라이브 분석 활성화 | `src/hooks/useOpenCV.ts` |
-| 카메라 프레임 캡처 | RGBA frame을 Canvas `ImageData`로 추출 | 실시간 촬영 프레임 분석 시작 | `src/hooks/useLiveFrameCapture.ts` |
-| 품질 검사 | brightness, Laplacian variance, edge density, coverage 계산 | “너무 어두움”, “흔들림”, “분석 가능” 안내 | `src/lib/cv/frameMetrics.ts` |
-| 변화 감지 | GRAY histogram 생성 후 `cv.compareHist` 비교 | 같은 화면 반복 분석 방지 | `src/lib/cv/changeDetection.ts` |
-| BIOS 전처리 | Canny/Hough/contour/Homography/CLAHE/Threshold/CC | BIOS ROI, 텍스트 후보, 전처리 이미지 생성 | `src/lib/cv/biosPipeline.ts` |
-| 좌표 변환 | homography inverse로 rectified 좌표를 원본 영상 좌표로 복원 | 실제 카메라 화면 위 박스 위치 계산 | `src/lib/cv/biosPipeline.ts` |
-| Gemini 호출 | 원본/전처리 이미지 + `cvSummary` + OCR/ROI 후보 전달 | Gemini가 후보 중 다음 조작 대상을 선택 | `src/hooks/useGeminiLiveGuide.ts` |
-| AR 표시 | Gemini의 `targetId`/`bbox`를 SVG overlay로 렌더링 | 사용자가 눌러야 할 위치를 카메라 위에 표시 | `src/components/mobile/LiveGuideMode.tsx` |
-
-즉, OpenCV는 백그라운드에서 한 번 실행되는 데모 코드가 아니라, **카메라 프레임 입력 → 품질 판단 → 화면 구조 추출 → 좌표 후보 생성 → AR 오버레이**까지 라이브 가이드 흐름의 앞단을 담당합니다.
-
-### 진단 클립 캡처 — 길게 누름 → 짧은 영상에서 상위 N개 프레임 자동 선별
-
-라이브 프레임 모드(매 프레임을 그때그때 게이팅)와 별개로, **카메라 셔터를 길게 누르면(≥ 650 ms) OpenCV가 짧은 영상 클립을 직접 채점해 상위 N개 프레임만 골라 Gemini로 전송하는 진단 모드**가 별도로 동작합니다. 한 장의 정지 사진만으로는 의미가 드러나지 않는 **LED 깜박임, 팬 회전, 부팅 시퀀스, BIOS 화면 전환, 비프음/팬 소음 같은 시간성 신호**를 단일 LLM 호출 비용 안에서 분석하기 위한 모드입니다.
-
-| 단계 | 처리 | 구현 위치 |
-|---|---|---|
-| 트리거 | 카메라 버튼 long-press 650 ms 이상 → 클립 캡처 시작 (`shouldStartDiagnosticClip`) | `src/components/mobile/LiveGuideMode.tsx` |
-| 샘플링 | 125 ms 간격, 최대 4초까지 프레임 수집 (최대 ~32장) + 마이크 RMS/peak 동시 수집 | `useDiagnosticClipCapture.ts:beginClipCapture` |
-| 채점 | 각 프레임에 `analyzeFrame` 실행 → `qualityScore` (Laplacian/brightness 기반) + `sceneChangeScore` (histogram 변화) | `src/lib/cv/frameMetrics.ts` |
-| **상위 N 선별** | **quality 상위 3장 + sceneChange 상위 3장 → 중복 제거 후 최대 5장** | `selectDiagnosticFrames()` |
-| 대표 프레임 1장 | quality 최고 프레임 1장에만 모듈 1(BIOS 파이프라인) 실행 → OCR/ROI 후보 추출 | `runBiosPipeline()` |
-| 정량 요약 | 5장 전체에서 brightness pulse Hz, scene change count, LED blink likely, fan/motion likely 산출 → `cvSummary` 문자열로 Gemini 프롬프트에 포함 | `buildDiagnosticClipSummary()` |
-| 모드 분기 | usable=0 + 비프음/노이즈 감지 → `audio-only`, 둘 다 있으면 `hybrid`, 시각만 있으면 `visual` | `classifyDiagnosticClipMode()` |
-| 폴백 | 모듈 3 품질 게이트가 모든 프레임을 거부하면 `captureMode='audio-only'`로 전환 후 사용자 피드백 표시 | `LiveGuideMode.tsx` |
-
-핵심 차별점은 **"영상을 통째로 Gemini에 보내지 않는다"** 는 것입니다. 4초 동안 수집된 ~32장 중 OpenCV가 두 축(품질/변화)으로 정렬해 **상위 5장 dedup + 그중 대표 1장의 JPEG + 정량 메타데이터**만 LLM 입력으로 사용하므로, LED 깜박임이나 비프음 같은 시간성 신호도 단일 호출 비용 안에서 다룰 수 있습니다. Phase 8에서 별도의 `AudioCapture` 진입점이 제거되고 이 클립 캡처에 오디오 분석이 흡수된 이유이기도 합니다.
-
-#### 전송 방식별 비용·지연 비교 (추정)
-
-같은 4초 동영상 단서를 LLM에 전달하는 세 가지 가상 시나리오를 같은 축에서 비교합니다. 실측이 아닌 **API 토큰 산정 규칙과 일반 모바일 환경 기준 추정치**이며, 정확한 토큰·비용은 Gemini 사용량 메타데이터를 수집한 후 보강할 예정입니다.
-
-| 전송 방식 | 업로드 크기 | 이미지 토큰¹ | 텍스트 토큰² | 응답 시간³ | 모바일 적합성 |
-|---|---|---|---|---|---|
-| 영상 통째 전송 (4초 1080p) | 2~5 MB | ~1,000 (~1 fps 샘플링) | ~200 | 8~15 s | △ |
-| 상위 5장 dedup + 요약 | ~250 KB | ~1,300 (258 × 5) | ~250 | 4~8 s | ✅ |
-| **대표 1장 + cvSummary (현재 설계)** | **~50 KB** | **~258** | **~250** | **2~5 s** | **✅** |
-
-¹ Gemini 3.5 기준 768×768 미만 이미지는 이미지당 258 토큰 고정. 영상 입력은 약 1 fps 샘플링으로 토큰화된다는 공식 가이드를 토대로 산정. 출처: [Gemini API — Image/Video understanding](https://ai.google.dev/gemini-api/docs/vision).
-² `cvSummary` 메타데이터(brightnessPulseHz, sceneChangeCount, ledBlinkLikely, audio peak/rms, captureMode 등)와 OCR 후보 JSON의 대략적 합산.
-³ Spring Boot → Gemini → SSE 왕복 합산. 실측 아님 — 모바일 LTE에서의 업로드 시간 + 모델 추론 시간 일반 범위.
-
-이미지 토큰만 보면 차이는 작지만, **업로드 대역폭은 약 40~100배, 응답 시간은 약 2~3배 차이**가 납니다. 모바일 PWA에서 길게 누름 → 즉시 안내가 필요한 UX에서 이 차이가 결정적입니다. 또한 영상 입력은 Gemini가 자체 샘플링으로 정보를 잃는 반면, 본 설계는 **클라이언트 OpenCV가 의도적으로 의미 있는 5장을 골라 통계로 압축**하므로 시간성 신호(깜박임 Hz, 비프음 피크) 자체는 영상 통째 전송보다 오히려 잘 보존됩니다.
-
-##### 실측 토큰 사용량 측정 방법
-
-위 표를 실측값으로 보강하기 위해 Gemini API의 `usageMetadata` 를 다음 경로로 수집합니다.
-
-1. **백엔드** — `GeminiService.generateGuideResponseWithUsage()` 가 `usageMetadata` 를 파싱해 `TokenUsage` 레코드로 반환.
-2. **SSE forward** — `LiveGuideService.processFrame()` 이 SSE `usage` 이벤트로 `{promptTokens, candidatesTokens, totalTokens, captureSource, context}` 를 클라이언트에 push.
-3. **백엔드 로그** — 같은 정보를 `[GUIDE-USAGE] context=… captureSource=… promptTokens=… …` 형식으로 SLF4J 로그에 남김. Render dashboard 또는 로컬 stdout 에서 `grep GUIDE-USAGE` 로 후처리 가능.
-4. **클라이언트 누적** — `useGeminiLiveGuide` 가 `captureSource` 별로 호출 횟수와 토큰 합을 누적해 콘솔에 `[guide-usage] source=clip n=… avg(prompt=…, total=…) this(…)` 출력. 개발자 도구 콘솔에서 `__nextdoorGuideUsage` 로 평균 조회 가능.
-
-`captureSource` 는 `clip` (길게 누름 동영상), `photo` (탭 사진), `live` (라이브 프레임 게이트), `galleryVideo` (갤러리 동영상) 4종으로 분리되어 같은 세션의 다른 진입 방식 간 직접 비교가 가능합니다. 실측값이 30회 이상 누적되면 위 추정 표의 "이미지 토큰" / "텍스트 토큰" 열을 평균치로 교체할 예정입니다.
-
-### Gemini만 사용하지 않은 이유
-
-#### 핵심 차별점 — 텍스트 안내 vs 좌표 안내
-
-Gemini Vision은 화면을 보고 **"Boot Priority를 클릭하세요"** 라는 자연어 안내는 할 수 있습니다.  
-하지만 그 텍스트가 지금 화면 위 **어느 픽셀에 있는지**는 Gemini 단독으로는 알 수 없습니다. 사용자가 여전히 눈으로 찾아서 클릭해야 합니다.
+Gemini Vision은 화면을 보고 **"Boot Priority를 클릭하세요"**라는 자연어 안내는 할 수 있습니다. 하지만 그 텍스트가 지금 화면 위 **어느 픽셀에 있는지**는 Gemini 단독으로는 알 수 없습니다. 사용자가 여전히 눈으로 찾아서 클릭해야 합니다.
 
 본 프로젝트의 OpenCV 파이프라인은 이 한계를 정확히 해결합니다.
 
@@ -260,31 +169,17 @@ Gemini Vision은 화면을 보고 **"Boot Priority를 클릭하세요"** 라는 
 | 위치 정보 | ❌ 픽셀 좌표 없음 | ✅ OCR bbox → homography 역변환 → 카메라 좌표계 |
 | 사용자 행동 | 눈으로 찾아서 클릭 | AR 박스가 가리키는 위치를 클릭 |
 
-**동작 원리:**
+**동작 원리는 세 단계입니다:**
 
-1. **OpenCV** `connectedComponentsWithStats` → BIOS 화면의 각 텍스트 영역을 바운딩 박스와 함께 추출  
-   예: `{ id: "roi_14", bbox: { x: 0.31, y: 0.44, w: 0.28, h: 0.06 }, text: "Boot Priority" }`
-2. **Gemini** → 후보 목록을 받고 "Boot Priority를 클릭하세요" + `targetId: "roi_14"` 선택
-3. **AR Overlay** → `targetId`의 bbox를 homography 역변환으로 카메라 원본 좌표계로 복원 → 화면 위 박스 표시
+1. **OpenCV** `connectedComponentsWithStats`가 BIOS 화면의 각 텍스트 영역을 바운딩 박스와 함께 추출합니다. 예: `{ id: "roi_14", bbox: { x: 0.31, y: 0.44, w: 0.28, h: 0.06 }, text: "Boot Priority" }`
+2. **Gemini**는 후보 목록을 받고 "Boot Priority를 클릭하세요" + `targetId: "roi_14"`를 선택합니다.
+3. **AR Overlay**는 `targetId`의 bbox를 homography 역변환으로 카메라 원본 좌표계로 복원해 화면 위에 박스를 표시합니다.
 
-Gemini가 **"무엇을"**(의미 판단), OpenCV가 **"어디에"**(픽셀 좌표 그라운딩)를 담당합니다.  
-이 둘이 결합될 때 비로소 자연어 설명이 실제 화면 위 AR 안내로 연결됩니다.
+Gemini가 **"무엇을"**(의미 판단), OpenCV가 **"어디에"**(픽셀 좌표 그라운딩)를 담당합니다. 이 둘이 결합될 때 비로소 자연어 설명이 실제 화면 위 AR 안내로 연결됩니다.
 
----
+### 파이프라인 게이트 흐름
 
-이 프로젝트에서 Gemini Vision만 사용하면 전체 이미지를 한 번에 해석할 수는 있지만, 컴퓨터 비전 과제 관점에서는 다음 문제가 남습니다.
-
-| Gemini만 사용할 때의 문제 | OpenCV로 해결한 방식 |
-|---|---|
-| 흐림·반사·어두운 프레임도 그대로 API에 들어감 | Laplacian variance와 밝기 통계로 저품질 프레임을 사전 거부 |
-| 같은 BIOS 화면이 반복 전송되어 비용과 응답 지연 증가 | 히스토그램 변화 감지로 의미 있는 화면 전환만 후속 처리 |
-| Vision 모델이 이미지 전체에서 메뉴 위치를 직접 추론해야 함 | Canny/Hough/contour로 BIOS 영역과 UI 구조 후보를 좌표화 |
-| “Boot Option” 같은 자연어 안내가 실제 화면 위치와 분리됨 | connected components/OCR bbox를 원본 영상 좌표로 유지 |
-| 최종 응답이 설명으로 끝나고 사용자가 다시 찾아야 함 | Gemini가 선택한 후보를 AR overlay로 표시 |
-
-따라서 Gemini는 “무엇을 해야 하는지”를 고르는 의미 판단 계층이고, OpenCV는 “분석할 가치가 있는 프레임인가”, “화면 구조가 어디에 있는가”, “선택 결과를 실제 좌표에 어떻게 표시할 것인가”를 담당합니다.
-
-세 모듈이 순차 게이트 구조로 동작합니다:
+세 CV 모듈이 순차 게이트 구조로 동작합니다.
 
 ```
 카메라 프레임 (RGBA Canvas ImageData)
@@ -304,48 +199,118 @@ AR Overlay — 클릭/조치할 위치를 화면 위 박스로 표시
 SSE 스트리밍 → GuideBubble 단계별 안내
 ```
 
-OpenCV는 최종 진단을 직접 내리는 모델이 아니라, 카메라 입력을 Gemini가 해석하기 좋은 형태로 정리하는 전처리 계층입니다. 모바일 카메라로 PC 화면을 비추면 반사, 흔들림, 초점 흐림, 화면 일부 잘림이 자주 발생합니다. 이 프레임을 그대로 LLM에 보내면 불필요한 호출이 늘고, 화면의 어느 부분을 눌러야 하는지 좌표로 안내하기 어렵습니다.
+<details>
+<summary><strong>💡 배포 앱에서 OpenCV가 실제로 동작하는 지점</strong></summary>
 
-따라서 본 프로젝트에서는 OpenCV를 다음 세 가지 용도로 사용합니다.
+<br>
 
-| 역할 | 사용 이유 | Gemini/Overlay와의 연결 |
-|---|---|---|
-| 프레임 게이트 | 흐린 프레임, 어두운 프레임, 변화 없는 프레임을 먼저 제외 | Gemini에는 분석 가치가 있는 프레임만 전달 |
-| 화면 구조화 | BIOS 외곽, UI 구조선, 텍스트 후보 영역을 좌표 정보로 추출 | `cvSummary`, `ocrRegions`, ROI 후보로 전달 |
-| 위치 안내 기반 | 후보 영역을 원본 프레임 좌표계로 유지 | Gemini가 선택한 `targetId` 또는 `bbox`를 AR 박스로 표시 |
+배포된 PWA에서 사용자가 라이브 가이드 모드로 들어가면, 카메라 프레임은 바로 Gemini로 전송되지 않습니다. 먼저 브라우저에서 OpenCV.js가 로드되고, 캔버스의 `ImageData`가 아래 순서로 처리됩니다.
 
-소프트웨어/BIOS 안내에서는 OpenCV가 메뉴와 텍스트 후보를 찾고, Gemini가 사용자의 목표에 맞는 항목을 선택합니다. 예를 들어 부팅 순서 변경 상황에서는 `Boot Option #1`, `UEFI USB`, `Save & Exit` 같은 후보가 프롬프트에 포함되고, Gemini가 다음에 눌러야 할 항목을 고르면 앱이 해당 위치를 박스로 표시합니다.
-
-하드웨어 조치에서는 OpenCV가 부품을 직접 분류하기보다는 프레임 품질과 변화 여부를 먼저 관리합니다. Gemini Vision이 RAM 슬롯, GPU 보조전원, 케이블 같은 조치 대상을 판단하면, 응답에 포함된 normalized bbox를 화면 위에 표시합니다. 즉 OpenCV는 입력 안정화와 좌표 기반 후보 제공을 담당하고, Gemini는 의미 판단과 다음 행동 선택을 담당합니다.
-
-### OpenCV 도입 효과
-
-OpenCV를 넣은 목적은 Gemini의 판단을 대체하는 것이 아니라, Gemini가 판단하기 전의 입력을 정리하는 것입니다. 실제 모바일 카메라 입력은 화면이 흐리거나, 모니터 반사가 심하거나, 같은 화면이 반복해서 들어오는 경우가 많습니다. 이런 프레임을 모두 LLM에 전달하면 비용이 늘고 응답이 불안정해질 수 있습니다.
-
-OpenCV 적용 전후를 비교하면 다음과 같습니다.
-
-| 문제 | OpenCV 없이 처리할 때 | OpenCV 적용 후 | 현재 근거 |
+| 시점 | 실행되는 CV 처리 | 앱에서 보이는 결과 | 구현 위치 |
 |---|---|---|---|
-| 저품질 프레임 | 흐림, 반사, 어두운 프레임도 그대로 Gemini에 전달될 수 있음 | 품질 게이트에서 먼저 제외 | 실촬영 22장 중 14장 거부 (**63.6%**) |
-| 분석 가능한 프레임 선별 | 사용자가 다시 비추기 전까지 입력 품질을 알기 어려움 | sharpness, brightness, coverage로 프레임 상태를 수치화 | 평균 sharpness **0.036**, Laplacian variance **57.5** |
-| 반복 프레임 전송 | 같은 화면을 여러 번 분석할 수 있음 | 히스토그램 변화 감지 후 의미 있는 변화가 있을 때만 후속 분석 | 모듈 2 전체 F1 **0.703**, 정상 화면 전환 F1 **0.917** |
-| BIOS 화면 위치 | Gemini가 이미지 전체에서 메뉴 위치를 직접 추론해야 함 | Canny/Hough/contour로 BIOS ROI 후보를 좌표화 | 실촬영 22장 중 14장 ROI 후보 검출 (**63.6%**) |
-| 텍스트 후보 영역 | 전체 이미지를 OCR 또는 Vision 모델에 의존 | connected components로 텍스트/에지 후보 영역 분리 | 평균 텍스트/에지 ROI 후보 **425.1개** |
-| 사용자 안내 방식 | "Boot Option을 누르세요" 같은 자연어 안내에 그침 | Gemini가 선택한 target/bbox를 화면 위 박스로 표시 | `targetId` 또는 normalized `bbox` 기반 AR Overlay |
+| PWA 진입 | `/opencv.js` WASM 로드 및 ready 상태 관리 | OpenCV 준비 상태에 따라 라이브 분석 활성화 | `src/hooks/useOpenCV.ts` |
+| 카메라 프레임 캡처 | RGBA frame을 Canvas `ImageData`로 추출 | 실시간 촬영 프레임 분석 시작 | `src/hooks/useLiveFrameCapture.ts` |
+| 품질 검사 | brightness, Laplacian variance, edge density, coverage 계산 | "너무 어두움", "흔들림", "분석 가능" 안내 | `src/lib/cv/frameMetrics.ts` |
+| 변화 감지 | GRAY histogram 생성 후 `cv.compareHist` 비교 | 같은 화면 반복 분석 방지 | `src/lib/cv/changeDetection.ts` |
+| BIOS 전처리 | Canny/Hough/contour/Homography/CLAHE/Threshold/CC | BIOS ROI, 텍스트 후보, 전처리 이미지 생성 | `src/lib/cv/biosPipeline.ts` |
+| 좌표 변환 | homography inverse로 rectified 좌표를 원본 영상 좌표로 복원 | 실제 카메라 화면 위 박스 위치 계산 | `src/lib/cv/biosPipeline.ts` |
+| Gemini 호출 | 원본/전처리 이미지 + `cvSummary` + OCR/ROI 후보 전달 | Gemini가 후보 중 다음 조작 대상을 선택 | `src/hooks/useGeminiLiveGuide.ts` |
+| AR 표시 | Gemini의 `targetId`/`bbox`를 SVG overlay로 렌더링 | 사용자가 눌러야 할 위치를 카메라 위에 표시 | `src/components/mobile/LiveGuideMode.tsx` |
 
-이 구조의 핵심 이득은 세 가지입니다.
+OpenCV는 백그라운드에서 한 번 실행되는 데모 코드가 아니라, **카메라 프레임 입력 → 품질 판단 → 화면 구조 추출 → 좌표 후보 생성 → AR 오버레이**까지 라이브 가이드 흐름의 앞단을 담당합니다.
 
-1. **호출 절감**: 품질이 낮거나 변화가 없는 프레임을 걸러 Gemini 호출 후보를 줄입니다.
-2. **판단 안정화**: Gemini가 전체 이미지를 처음부터 해석하기보다, OpenCV가 정리한 품질 정보와 후보 영역을 함께 사용합니다.
-3. **행동 안내 연결**: 최종 응답이 자연어 설명에서 끝나지 않고, 클릭하거나 조치해야 할 위치를 화면 위 박스로 표시할 수 있습니다.
+</details>
 
-따라서 본 프로젝트의 OpenCV 파이프라인은 단순한 이미지 보정이 아니라, LLM 기반 진단을 실제 사용자 행동으로 연결하기 위한 입력 게이트와 grounding 계층입니다. 정확도 향상 자체는 OCR 환경을 포함한 추가 정량 평가가 필요하지만, 현재 실촬영 데이터 기준으로도 품질 필터링과 후보 좌표 생성 효과는 확인할 수 있습니다.
+<details>
+<summary><strong>📹 진단 클립 캡처 — 길게 누름으로 영상에서 상위 N개 프레임 자동 선별</strong></summary>
+
+<br>
+
+라이브 프레임 모드(매 프레임을 그때그때 게이팅)와 별개로, **카메라 셔터를 길게 누르면(≥ 650 ms) OpenCV가 짧은 영상 클립을 직접 채점해 상위 N개 프레임만 골라 Gemini로 전송하는 진단 모드**가 별도로 동작합니다. 한 장의 정지 사진만으로는 의미가 드러나지 않는 **LED 깜박임, 팬 회전, 부팅 시퀀스, BIOS 화면 전환, 비프음/팬 소음 같은 시간성 신호**를 단일 LLM 호출 비용 안에서 분석하기 위한 모드입니다.
+
+| 단계 | 처리 | 구현 위치 |
+|---|---|---|
+| 트리거 | 카메라 버튼 long-press 650ms 이상 → 클립 캡처 시작 (`shouldStartDiagnosticClip`) | `src/components/mobile/LiveGuideMode.tsx` |
+| 샘플링 | 125ms 간격, 최대 4초까지 프레임 수집 (최대 ~32장) + 마이크 RMS/peak 동시 수집 | `useDiagnosticClipCapture.ts:beginClipCapture` |
+| 채점 | 각 프레임에 `analyzeFrame` 실행 → `qualityScore` (Laplacian/brightness 기반) + `sceneChangeScore` (histogram 변화) | `src/lib/cv/frameMetrics.ts` |
+| **상위 N 선별** | **quality 상위 3장 + sceneChange 상위 3장 → 중복 제거 후 최대 5장** | `selectDiagnosticFrames()` |
+| 대표 프레임 1장 | quality 최고 프레임 1장에만 모듈 1(BIOS 파이프라인) 실행 → OCR/ROI 후보 추출 | `runBiosPipeline()` |
+| 정량 요약 | 5장 전체에서 brightness pulse Hz, scene change count, LED blink likely, fan/motion likely 산출 → `cvSummary` 문자열로 Gemini 프롬프트에 포함 | `buildDiagnosticClipSummary()` |
+| 모드 분기 | usable=0 + 비프음/노이즈 감지 → `audio-only`, 둘 다 있으면 `hybrid`, 시각만 있으면 `visual` | `classifyDiagnosticClipMode()` |
+| 폴백 | 모듈 3 품질 게이트가 모든 프레임을 거부하면 `captureMode='audio-only'`로 전환 후 사용자 피드백 표시 | `LiveGuideMode.tsx` |
+
+핵심 차별점은 **"영상을 통째로 Gemini에 보내지 않는다"**는 것입니다. 4초 동안 수집된 ~32장 중 OpenCV가 두 축(품질/변화)으로 정렬해 **상위 5장 dedup + 그중 대표 1장의 JPEG + 정량 메타데이터**만 LLM 입력으로 사용하므로, LED 깜박임이나 비프음 같은 시간성 신호도 단일 호출 비용 안에서 다룰 수 있습니다.
+
+#### 전송 방식별 비용·지연 비교 (추정)
+
+같은 4초 동영상 단서를 LLM에 전달하는 세 가지 가상 시나리오를 같은 축에서 비교합니다. 실측이 아닌 **API 토큰 산정 규칙과 일반 모바일 환경 기준 추정치**이며, 정확한 토큰·비용은 Gemini 사용량 메타데이터를 수집한 후 보강할 예정입니다.
+
+| 전송 방식 | 업로드 크기 | 이미지 토큰¹ | 텍스트 토큰² | 응답 시간³ | 모바일 적합성 |
+|---|---|---|---|---|---|
+| 영상 통째 전송 (4초 1080p) | 2~5 MB | ~1,000 (~1 fps 샘플링) | ~200 | 8~15 s | △ |
+| 상위 5장 dedup + 요약 | ~250 KB | ~1,300 (258 × 5) | ~250 | 4~8 s | ✅ |
+| **대표 1장 + cvSummary (현재 설계)** | **~50 KB** | **~258** | **~250** | **2~5 s** | **✅** |
+
+¹ Gemini 3.5 기준 768×768 미만 이미지는 이미지당 258 토큰 고정. 영상 입력은 약 1 fps 샘플링으로 토큰화된다는 공식 가이드를 토대로 산정. 출처: [Gemini API — Image/Video understanding](https://ai.google.dev/gemini-api/docs/vision).
+² `cvSummary` 메타데이터(brightnessPulseHz, sceneChangeCount, ledBlinkLikely, audio peak/rms, captureMode 등)와 OCR 후보 JSON의 대략적 합산.
+³ Spring Boot → Gemini → SSE 왕복 합산. 실측 아님 — 모바일 LTE에서의 업로드 시간 + 모델 추론 시간 일반 범위.
+
+이미지 토큰만 보면 차이는 작지만, **업로드 대역폭은 약 40~100배, 응답 시간은 약 2~3배 차이**가 납니다. 모바일 PWA에서 길게 누름 → 즉시 안내가 필요한 UX에서 이 차이가 결정적입니다. 또한 영상 입력은 Gemini가 자체 샘플링으로 정보를 잃는 반면, 본 설계는 **클라이언트 OpenCV가 의도적으로 의미 있는 5장을 골라 통계로 압축**하므로 시간성 신호(깜박임 Hz, 비프음 피크) 자체는 영상 통째 전송보다 오히려 잘 보존됩니다.
+
+##### 실측 토큰 사용량 측정 방법
+
+위 표를 실측값으로 보강하기 위해 Gemini API의 `usageMetadata`를 다음 경로로 수집합니다.
+
+1. **백엔드** — `GeminiService.generateGuideResponseWithUsage()`가 `usageMetadata`를 파싱해 `TokenUsage` 레코드로 반환.
+2. **SSE forward** — `LiveGuideService.processFrame()`이 SSE `usage` 이벤트로 `{promptTokens, candidatesTokens, totalTokens, captureSource, context}`를 클라이언트에 push.
+3. **백엔드 로그** — 같은 정보를 `[GUIDE-USAGE] context=… captureSource=… promptTokens=… …` 형식으로 SLF4J 로그에 남김.
+4. **클라이언트 누적** — `useGeminiLiveGuide`가 `captureSource`별로 호출 횟수와 토큰 합을 누적해 콘솔에 출력. `__nextdoorGuideUsage`로 평균 조회 가능.
+
+`captureSource`는 `clip` (길게 누름 동영상), `photo` (탭 사진), `live` (라이브 프레임 게이트), `galleryVideo` (갤러리 동영상) 4종으로 분리되어 같은 세션의 다른 진입 방식 간 직접 비교가 가능합니다.
+
+</details>
+
+<details>
+<summary><strong>📝 Gemini만 쓰지 않은 이유 — 상세 비교</strong></summary>
+
+<br>
+
+이 프로젝트에서 Gemini Vision만 사용하면 전체 이미지를 한 번에 해석할 수는 있지만, 컴퓨터 비전 과제 관점에서는 다음 문제가 남습니다.
+
+| Gemini만 사용할 때의 문제 | OpenCV로 해결한 방식 | 현재 근거 |
+|---|---|---|
+| 흐림·반사·어두운 프레임도 그대로 API에 들어감 | Laplacian variance와 밝기 통계로 저품질 프레임을 사전 거부 | 실촬영 22장 중 14장 거부 (**63.6%**) |
+| 같은 BIOS 화면이 반복 전송되어 비용/지연 증가 | 히스토그램 변화 감지로 의미 있는 화면 전환만 후속 처리 | 모듈 2 전체 F1 **0.703** |
+| Vision 모델이 이미지 전체에서 메뉴 위치를 직접 추론 | Canny/Hough/contour로 BIOS 영역과 UI 구조 후보를 좌표화 | 22장 중 14장 ROI 후보 검출 (**63.6%**) |
+| "Boot Option" 같은 자연어 안내가 실제 화면 위치와 분리됨 | connected components/OCR bbox를 원본 영상 좌표로 유지 | 평균 텍스트/에지 ROI 후보 **425.1개** |
+| 최종 응답이 설명으로 끝나고 사용자가 다시 찾아야 함 | Gemini가 선택한 후보를 AR overlay로 표시 | `targetId` / normalized `bbox` |
+
+세 가지 핵심 이득:
+
+1. **호출 절감** — 품질이 낮거나 변화가 없는 프레임을 걸러 Gemini 호출 후보를 줄임
+2. **판단 안정화** — Gemini가 전체 이미지를 처음부터 해석하기보다, OpenCV가 정리한 품질 정보와 후보 영역을 함께 사용
+3. **행동 안내 연결** — 최종 응답이 자연어 설명에서 끝나지 않고, 클릭/조치할 위치를 화면 위 박스로 표시
+
+</details>
 
 ---
 
+## 🧪 CV 모듈
+
 ### 모듈 1 — BIOS 화면 End-to-End 파이프라인 🥇
 
-#### 알고리즘 파이프라인
+원본 RGBA 프레임이 Canny → HoughLinesP → 4-corner extraction → Homography → CLAHE → AdaptiveThreshold → ConnectedComponents 순으로 처리되어 OCR/Vision 모델 입력에 적합한 형태로 정리됩니다.
+
+| BIOS 파이프라인 단계 | Threshold 방법 비교 |
+|:---:|:---:|
+| ![BIOS Pipeline Stages](docs/cv-pipeline/bios-pipeline-stages.png) | ![Threshold Comparison](docs/cv-pipeline/bios-threshold-comparison.png) |
+
+같은 실촬영 프레임에서 Otsu는 82개, Adaptive Mean은 267개(주변 키보드·반사 노이즈까지 포착), **Adaptive Gaussian은 130개의 텍스트 ROI 후보**를 분리했습니다. Adaptive Gaussian이 잡음과 신호 사이의 균형이 가장 좋아서 production에서 채택했습니다.
+
+<details>
+<summary><strong>알고리즘 파이프라인 (상세)</strong></summary>
+
+<br>
 
 ```
 원본 RGBA 프레임
@@ -360,19 +325,14 @@ OpenCV 적용 전후를 비교하면 다음과 같습니다.
   → [전처리 이미지 → Gemini Vision / Tesseract.js]
 ```
 
-#### 단계별 시각화
+</details>
 
-`docs/cv-pipeline/bios-pipeline-stages.png` 와 `docs/cv-pipeline/bios-threshold-comparison.png` 는 실제 촬영본(`C:\Users\user\Desktop\test data` 중 `KakaoTalk_20260519_125632555_17.jpg`)을 입력으로 다시 생성했습니다. 합성 BIOS 렌더링 이미지가 아니라 같은 실촬영 프레임이 단계별로 어떻게 변환되는지, Otsu/Mean/Gaussian 임계화에서 텍스트 후보가 어떻게 달라지는지 직접 확인할 수 있습니다.
+<details>
+<summary><strong>Ablation Study — 단계별 기여도 (실촬영 22장 proxy)</strong></summary>
 
-| BIOS 파이프라인 단계 | Threshold 방법 비교 |
-|:---:|:---:|
-| ![BIOS Pipeline Stages](docs/cv-pipeline/bios-pipeline-stages.png) | ![Threshold Comparison](docs/cv-pipeline/bios-threshold-comparison.png) |
+<br>
 
-> 같은 실촬영 프레임에서 Otsu는 82개, Adaptive Mean은 267개(주변 키보드·반사 노이즈까지 포착), **Adaptive Gaussian은 130개의 텍스트 ROI 후보**를 분리했습니다. Adaptive Gaussian이 잡음과 신호 사이의 균형이 가장 좋습니다.
-
-#### Ablation Study — 단계별 기여도 (실촬영 22장 proxy 측정)
-
-로컬 Tesseract가 없는 환경에서는 OCR 점수가 0으로 기록되어 정량 비교 의미가 사라집니다. 대신 같은 22장 실촬영 프레임에 대해 16개 파이프라인 조합을 모두 실행하고, OCR 직전 단계인 **텍스트 ROI 후보 개수**(connected components 중 텍스트 모양 조건을 만족하는 것)를 proxy로 측정했습니다. 더 많은 후보가 분리될수록 OCR/Vision 모델 입력으로 적합합니다.
+로컬 Tesseract가 없는 환경에서는 OCR 점수가 0으로 기록되어 정량 비교 의미가 사라집니다. 대신 같은 22장 실촬영 프레임에 대해 16개 파이프라인 조합을 모두 실행하고, OCR 직전 단계인 **텍스트 ROI 후보 개수**(connected components 중 텍스트 모양 조건을 만족하는 것)를 proxy로 측정했습니다.
 
 ![BIOS Ablation (real capture, text-ROI yield)](docs/ablation-results/bios-ablation.png)
 
@@ -383,11 +343,16 @@ OpenCV 적용 전후를 비교하면 다음과 같습니다.
 | **`1111` 전체 파이프라인** | **113** | 정면화 + CLAHE + Threshold + CC 필터 후 가장 신뢰도 높은 후보만 잔존 |
 | `0100` ~ `0111` (CLAHE only, no homography) | 102 | CLAHE 후 후속 단계 없으면 후보 응집 부족 |
 
-> 절대 ROI 수가 많다고 좋은 게 아니라, **노이즈가 제거된 신뢰도 높은 후보** 가 OCR에 유리합니다. 위 차트는 환경 노이즈(키보드·모니터 반사)를 포함한 22장에서 측정한 값이므로, 전체 파이프라인(`1111`)의 113개가 실제 사용에 가장 적합한 값입니다.
+> 절대 ROI 수가 많다고 좋은 게 아니라, **노이즈가 제거된 신뢰도 높은 후보**가 OCR에 유리합니다. 위 차트는 환경 노이즈(키보드·모니터 반사)를 포함한 22장에서 측정한 값이므로, 전체 파이프라인(`1111`)의 113개가 실제 사용에 가장 적합한 값입니다.
 
 상세 데이터: [`bios-ablation.csv`](docs/ablation-results/bios-ablation.csv) · 재실행: `python notebooks/regenerate_real_bios_charts.py`
 
-#### OCR 키워드 Recall Ablation (Tesseract 5.4, 실촬영 22장)
+</details>
+
+<details>
+<summary><strong>OCR 키워드 Recall Ablation (Tesseract 5.4, 실촬영 22장)</strong></summary>
+
+<br>
 
 품질 게이트 통과 8장을 대상으로 전처리 조합별 BIOS 키워드 포함 비율을 측정했습니다. 입력 이미지가 Chrome 브라우저에서 MSI BIOS 사진을 열어 촬영한 스크린샷이므로, GUI BIOS(MSI Click BIOS 5)에서 Tesseract가 갖는 구조적 한계가 수치로 드러납니다.
 
@@ -403,11 +368,16 @@ OpenCV 적용 전후를 비교하면 다음과 같습니다.
 | ④ CLAHE + Adaptive | 9.0% | 4.9% | 11.3% |
 | ⑤ CLAHE + Otsu | 20.3% | 13.8% | 24.1% |
 
-> **핵심 발견**: GUI BIOS(MSI Click BIOS 5)에서 Adaptive Threshold 전처리는 오히려 키워드 Recall을 감소시킵니다(-14.8%p). 이는 그래픽 기반 BIOS UI가 문서 OCR 전제의 Tesseract에 적합하지 않음을 정량으로 보여주며, 텍스트 이해를 Gemini Vision에 위임한 아키텍처 결정의 근거가 됩니다.  
-> Tesseract는 텍스트 모드 BIOS(AMI/Award/Phoenix POST 화면) 벤더 식별에 한정하여 사용합니다.  
+> **핵심 발견**: GUI BIOS(MSI Click BIOS 5)에서 Adaptive Threshold 전처리는 오히려 키워드 Recall을 감소시킵니다(-14.8%p). 이는 그래픽 기반 BIOS UI가 문서 OCR 전제의 Tesseract에 적합하지 않음을 정량으로 보여주며, 텍스트 이해를 Gemini Vision에 위임한 아키텍처 결정의 근거가 됩니다.
+> Tesseract는 텍스트 모드 BIOS(AMI/Award/Phoenix POST 화면) 벤더 식별에 한정하여 사용합니다.
 > 재실행: `python notebooks/run_ocr_evaluation.py`
 
-#### Real-Capture BIOS Evaluation
+</details>
+
+<details>
+<summary><strong>Real-Capture BIOS Evaluation (22장 실촬영 정량 결과)</strong></summary>
+
+<br>
 
 MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄운 뒤, 스마트폰으로 22장의 이미지를 촬영했습니다. 스크린샷 대신 실제 촬영 이미지를 사용한 이유는 카메라 기반 진단에서 자주 생기는 반사, 초점 흐림, 화면 외 영역, 부분 crop이 전처리 성능에 직접 영향을 주기 때문입니다.
 
@@ -418,8 +388,6 @@ MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄
 | 전처리/OCR | boot-main / boot-popup | CLAHE, Adaptive Gaussian Threshold, OCR similarity |
 | 영상 변화 감지 | boot-main → boot-popup | histogram correlation 기반 scene-change gate |
 
-아래 자료는 같은 입력에 대해 OpenCV가 어떤 판단을 했는지 보여줍니다. 첫 번째 차트는 22장 전체의 정량 요약이고, 두 번째 이미지는 BIOS ROI와 텍스트 후보 오버레이입니다. 세 번째 이미지는 원본 카메라 입력이 CLAHE와 Adaptive Threshold를 거치며 LLM/OCR이 읽기 쉬운 형태로 정리되는 과정을 보여줍니다.
-
 ![Real BIOS OpenCV Summary](docs/cv-pipeline/real-bios-summary-chart.svg)
 
 ![Real BIOS ROI Overlay](docs/cv-pipeline/real-bios-overlay-grid.png)
@@ -428,21 +396,17 @@ MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄
 
 이 오버레이는 평가용 시각화이면서 실제 앱의 AR 안내 구조와도 연결됩니다. 앱에서는 OpenCV 전처리 결과를 `cvSummary`와 OCR/ROI 후보로 정리해 Gemini에 전달하고, Gemini가 선택한 대상은 `targetId` 또는 `bbox` 형태로 돌아옵니다. 프론트엔드는 이 좌표를 카메라 화면 좌표계에 맞춰 변환한 뒤 사용자가 클릭하거나 조치해야 할 위치를 박스로 표시합니다.
 
-이 오버레이는 단순히 화면 위에 고정된 박스를 띄우는 방식이 아닙니다. 카메라로 촬영한 원본 프레임에서 OpenCV가 BIOS 화면 영역과 텍스트 후보 좌표를 먼저 추출하고, Gemini가 그중 다음에 조작해야 할 대상을 선택하면, 앱이 해당 좌표를 다시 카메라 화면 위에 맞춰 표시합니다.
+모바일 카메라 화면은 기기 비율과 CSS 표시 방식 때문에 원본 영상 좌표와 실제 화면에 보이는 좌표가 그대로 일치하지 않습니다. 그래서 원본 비디오 크기를 기준으로 SVG `viewBox`를 유지하고, 카메라 영상과 같은 비율로 오버레이가 겹치도록 처리했습니다.
 
-특히 모바일 카메라 화면은 기기 비율과 CSS 표시 방식 때문에 원본 영상 좌표와 실제 화면에 보이는 좌표가 그대로 일치하지 않습니다. 그래서 원본 비디오 크기를 기준으로 SVG `viewBox`를 유지하고, 카메라 영상과 같은 비율로 오버레이가 겹치도록 처리했습니다. 덕분에 사용자는 단순한 설명만 받는 것이 아니라, 실제로 어느 메뉴나 버튼을 눌러야 하는지 화면 위에서 바로 확인할 수 있습니다.
 <img width="1179" height="2556" alt="image" src="https://github.com/user-attachments/assets/30404512-2535-4e12-95e7-b1fb53069e0e" />
-
 
 | 단계 | 전달되는 정보 | 목적 |
 |---|---|---|
 | OpenCV → Gemini | 품질 점수, 밝기, Laplacian variance, 변화 감지 점수, BIOS rectified 여부, 텍스트 후보 수 | 현재 프레임이 분석 가능한지와 어떤 화면 구조를 갖는지 전달 |
-| OCR/ROI 후보 → Gemini | 텍스트 후보 id, bbox, confidence | Gemini가 “어느 메뉴/행을 눌러야 하는지” 선택할 수 있게 함 |
+| OCR/ROI 후보 → Gemini | 텍스트 후보 id, bbox, confidence | Gemini가 "어느 메뉴/행을 눌러야 하는지" 선택할 수 있게 함 |
 | Gemini → Overlay | 자연어 안내 + `targetId` 또는 normalized `bbox` | 선택된 대상 위치를 앱 화면 위에 박스로 표시 |
 
-#### Real-Capture 정량 결과
-
-입력 데이터는 `C:\Users\user\Desktop\test data`에 저장된 BIOS 촬영 이미지 22장입니다. 일부 이미지는 브라우저 상단, 키보드, 모니터 반사가 함께 찍혀 있어, 실제 사용자가 모바일 카메라로 화면을 비출 때와 비슷한 조건을 포함합니다.
+#### 22장 정량 요약
 
 | 지표 | 결과 | 해석 |
 |---|---:|---|
@@ -451,45 +415,28 @@ MSI Click BIOS 5의 `Boot` 화면과 `Boot Option #1` 팝업을 모니터에 띄
 | 품질 게이트 거부 | 14/22 (**63.6%**) | 흐림, 반사, 낮은 디테일로 제외된 프레임 |
 | 평균 sharpness score | **0.036** | 범위 0.007~0.092 |
 | 평균 Laplacian variance | **57.5** | 범위 11.1~147.2 |
-| 평균 brightness | **0.418** | 범위 0.134~0.625, dark/normal 조건 혼합 |
+| 평균 brightness | **0.418** | 범위 0.134~0.625 |
 | ROI/corner 후보 검출 | 14/22 (**63.6%**) | strict quad 0건, fallback ROI 14건 |
 | 평균 Hough line 후보 | **740.2개** | 범위 42~3946 |
-| 평균 텍스트/에지 ROI 후보 | **425.1개** | 범위 186~869, OCR 전 후보 영역 |
+| 평균 텍스트/에지 ROI 후보 | **425.1개** | 범위 186~869 |
 | OCR 키워드 Recall (Tesseract 5.4, PSM11) | **19.7%** (품질통과 8장) | 브라우저 스크린샷 특성상 GUI 혼재 |
 | CLAHE 전처리 후 OCR Recall | **17.4%** (품질통과 8장) | Adaptive Threshold: 4.9% (GUI에 역효과) |
-| OCR 아키텍처 결론 | **Gemini Vision 위임** | GUI BIOS에 Tesseract 한계 정량 확인 → 설계 정당성 증명 |
+| OCR 아키텍처 결론 | **Gemini Vision 위임** | GUI BIOS에 Tesseract 한계 정량 확인 |
 
-> **중요 발견**: MSI Click BIOS 5(GUI 타입)는 Tesseract OCR로 키워드 Recall 20% 미만. CLAHE + Adaptive Threshold이 오히려 GUI 구조를 파괴해 Recall 감소(-14.8%p). 이는 프로젝트가 텍스트 이해를 Gemini Vision에 위임한 아키텍처 결정의 정량적 근거가 됩니다.  
-> Tesseract는 텍스트 모드 BIOS(AMI/Award/Phoenix POST 화면) 벤더 식별에 한정 사용.
-
-실촬영 입력은 OCR에 바로 넣기에는 품질 편차가 큽니다. 그래서 이 파이프라인은 먼저 Laplacian variance와 밝기 통계로 프레임을 걸러내고, 통과한 프레임에 대해서만 BIOS 영역 검출과 후속 OCR 단계를 수행하도록 구성했습니다.
-
-라벨 파일:
-
-- `data/bios/real-capture/ground-truth.csv` — 22장 실촬영 이미지 계획 및 정답 텍스트
-- `data/live-frames/real-video-ground-truth.csv` — 실제 테스트 영상 프레임 라벨
-
-평가 실행:
+라벨 파일 / 평가 실행:
 
 ```powershell
 python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Desktop\test data"
 ```
 
-생성 결과:
+생성 결과: `docs/ablation-results/real-bios-*.csv`, `docs/cv-pipeline/real-bios-*.{png,svg}`
 
-- `docs/ablation-results/real-bios-summary.csv`
-- `docs/ablation-results/real-bios-quality-results.csv`
-- `docs/ablation-results/real-bios-corner-results.csv`
-- `docs/ablation-results/real-bios-ocr-results.csv`
-- `docs/ablation-results/real-video-frame-results.csv`
-- `docs/cv-pipeline/real-bios-summary-chart.svg` — 22장 실촬영 평가 요약 차트
-- `docs/cv-pipeline/real-bios-overlay-grid.png` — BIOS ROI와 텍스트 후보 오버레이
-- `docs/cv-pipeline/real-bios-preprocess-comparison.png` — 원본 대비 전처리 결과 비교
-- `docs/cv-pipeline/real-bios-detection-gallery.png` — 원본/검출 오버레이/전처리 결과 전체 갤러리
+</details>
 
-기존 synthetic/Wikimedia 데이터는 알고리즘 점검용으로 유지하고, 실촬영 BIOS 세트는 카메라 입력 조건에서의 동작을 확인하는 용도로 사용했습니다.
+<details>
+<summary><strong>CLAHE 파라미터 그리드 서치 (실촬영 22장 proxy)</strong></summary>
 
-#### CLAHE 파라미터 그리드 서치 (실촬영 22장 proxy)
+<br>
 
 `clipLimit` × `tileGridSize` × `adaptiveBlock` × `C` 144조합을 실제 22장 BIOS 촬영본에 모두 적용하고, OCR 직전 단계에서 분리된 평균 텍스트 ROI 개수를 측정했습니다(아래 히트맵은 각 `(clipLimit, tileGridSize)` 쌍이 만든 최대값입니다).
 
@@ -504,9 +451,14 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 
 > **결정**: 본 프로젝트는 `clipLimit=2.0, tileGrid=8`을 채택합니다. 실측 최고치(`clipLimit=4.0`)는 텍스트 ROI 후보를 가장 많이 만들지만 그 안에는 노이즈도 함께 늘어납니다. `clipLimit=2.0`은 학술적으로 검증된 기본값이며 적당한 후보 수를 유지하면서 false positive를 줄이는 절충점입니다.
 
-상세 데이터: [`bios-clahe-gridsearch.csv`](docs/ablation-results/bios-clahe-gridsearch.csv) · 재실행: `python notebooks/regenerate_clahe_gridsearch.py`
+상세 데이터: [`bios-clahe-gridsearch.csv`](docs/ablation-results/bios-clahe-gridsearch.csv)
 
-#### 알고리즘 선택 근거 — Threshold 방법
+</details>
+
+<details>
+<summary><strong>Threshold 알고리즘 선택 근거</strong></summary>
+
+<br>
 
 | 방법 | 균일 조명 | 불균일 조명 | 추론 속도 |
 |---|---|---|---|
@@ -514,22 +466,25 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 | Adaptive Mean | 국소 적응 | △ 가장자리 손실 | 보통 |
 | **Adaptive Gaussian** | 강건 | ✅ BIOS 기울기에도 안정 | 보통 |
 
-> **결정: Adaptive Gaussian Threshold**  
+> **결정: Adaptive Gaussian Threshold**
 > BIOS 화면은 카메라 각도로 인해 한쪽이 어두운 경우가 많음. 국소 가중 평균 방식이 이를 보상.
+
+</details>
 
 ---
 
 ### 모듈 2 — 라이브 프레임 변화 감지 정량 분석 🥈
 
-#### 측정 매트릭스 (4 × 3 × 3 = 36 조합)
+4종 메트릭(CORREL/CHISQR/BHATTACHARYYA/INTERSECT) × 3종 컬러 공간(RGB/HSV/GRAY) × 3종 안정화 윈도우(1/3/5) = **36조합**을 합성 데이터와 실측 영상에서 모두 측정했습니다.
 
-| 차원 | 후보 |
-|---|---|
-| 메트릭 | HISTCMP_CORREL / CHISQR / BHATTACHARYYA / INTERSECT |
-| 컬러 공간 | RGB / HSV / GRAY |
-| 안정화 윈도우 | 1 / 3 / 5 프레임 연속 |
+![Histogram Heatmap](docs/ablation-results/histogram-heatmap.png)
 
-#### 시나리오별 베스트 결과
+합성 데이터에서 `CORREL × GRAY × w=5` 조합이 평균 F1 **0.703**으로 최고치를 기록했고, 정상 화면 전환 시나리오에서는 F1 **0.917**까지 도달했습니다. 다만 합성↔실측 간격을 보정하기 위해 별도 영상으로 재측정한 결과 production은 `CORREL × RGB × w=3 × threshold=0.9995`로 채택했습니다.
+
+<details>
+<summary><strong>시나리오별 베스트 결과 (합성 데이터)</strong></summary>
+
+<br>
 
 | 시나리오 | 베스트 메트릭 | 컬러 | 윈도우 | Precision | Recall | F1 |
 |---|---|---|---|---|---|---|
@@ -548,14 +503,17 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 | BHATTACHARYYA | 0.52 | 0.60 | 0.645 |
 | INTERSECT | 0.50 | 0.57 | 0.625 |
 
-> **합성 데이터 기준 선택**: HISTCMP_CORREL × GRAY × windowSize=5 × threshold=0.9999  
+> **합성 데이터 기준 선택**: HISTCMP_CORREL × GRAY × windowSize=5 × threshold=0.9999
 > 윈도우 크기(5프레임 연속)가 단일 메트릭 변경보다 false positive 억제에 더 큰 영향.
-
-![Histogram Heatmap](docs/ablation-results/histogram-heatmap.png)
 
 ![Histogram ROC per Scenario](docs/ablation-results/histogram-roc-per-scenario.png)
 
-#### 실측 영상 검증 — 합성↔실측 간격 보정 (2026-05-22)
+</details>
+
+<details>
+<summary><strong>실측 영상 검증 — 합성↔실측 간격 보정 (2026-05-22)</strong></summary>
+
+<br>
 
 합성 ablation의 `threshold=0.9999`는 픽셀 단위로 거의 동일한 합성 프레임에 의존합니다. 실제 폰 카메라로 BIOS를 촬영하면 자동노출·손떨림·rolling shutter·sensor noise로 인해 정적 화면조차 CORREL이 1.0보다 낮게 나오기 때문에, 합성 임계값을 그대로 production에 쓰면 false positive가 폭증합니다. 이 간격을 정량화하기 위해 실측 영상으로 동일한 36조합 ablation을 재실행했습니다.
 
@@ -575,18 +533,36 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 
 ![Histogram ROC — Real (CORREL × RGB)](docs/ablation-results/histogram-real-roc.png)
 
-> **production 채택**: `BEST_PARAMS = { metric: CORREL, colorSpace: RGB, windowSize: 3, threshold: 0.9995 }` ([`src/lib/cv/changeDetection.ts`](src/lib/cv/changeDetection.ts)).  
-> F1 0.34는 단일 변화 감지기 기준이며, production은 추가로 **모듈 3 quality gate + 2초 cooldown + `isSendingRef` 동시 전송 차단**으로 false positive를 다단계 제거합니다 — 따라서 `cv.compareHist` 단독 F1보다 전체 파이프라인 비용 절감 효과가 훨씬 큽니다 (다음 절 "Gemini Only vs CV + Gemini" 표 참조).
+> **production 채택**: `BEST_PARAMS = { metric: CORREL, colorSpace: RGB, windowSize: 3, threshold: 0.9995 }` ([`src/lib/cv/changeDetection.ts`](src/lib/cv/changeDetection.ts)).
+> F1 0.34는 단일 변화 감지기 기준이며, production은 추가로 **모듈 3 quality gate + 2초 cooldown + `isSendingRef` 동시 전송 차단**으로 false positive를 다단계 제거합니다.
 
-#### False Positive 처리 — 윈도우 연속 안정화
+</details>
 
-합성 5개 시나리오(hand-shake / lighting / rolling-shutter / ios-autofocus / normal-change)의 결과는 [`histogram-ablation.csv`](docs/ablation-results/histogram-ablation.csv) 의 `window` 컬럼별 행에서 확인할 수 있습니다. 합성에서는 Rolling Shutter가 CHISQR+GRAY+w=5에서 Precision **1.000**(FP 0건), 정상 화면 전환이 CORREL+GRAY+w=5에서 F1 **0.917**을 달성합니다. 실측 영상([`histogram-real-ablation.csv`](docs/ablation-results/histogram-real-ablation.csv))에서는 동일한 윈도우 효과가 약해지는데, 이는 BIOS 화면 사이의 carry-over 텍스트(공통 헤더·푸터) 때문에 변화 강도 자체가 합성만큼 강하지 않기 때문입니다. 따라서 production은 윈도우 단독이 아니라 윈도우(3) + cooldown(2s) + quality gate를 함께 사용합니다.
+<details>
+<summary><strong>False Positive 처리 — 윈도우 연속 안정화</strong></summary>
+
+<br>
+
+합성 5개 시나리오(hand-shake / lighting / rolling-shutter / ios-autofocus / normal-change)의 결과는 [`histogram-ablation.csv`](docs/ablation-results/histogram-ablation.csv)의 `window` 컬럼별 행에서 확인할 수 있습니다. 합성에서는 Rolling Shutter가 CHISQR+GRAY+w=5에서 Precision **1.000**(FP 0건), 정상 화면 전환이 CORREL+GRAY+w=5에서 F1 **0.917**을 달성합니다.
+
+실측 영상([`histogram-real-ablation.csv`](docs/ablation-results/histogram-real-ablation.csv))에서는 동일한 윈도우 효과가 약해지는데, 이는 BIOS 화면 사이의 carry-over 텍스트(공통 헤더·푸터) 때문에 변화 강도 자체가 합성만큼 강하지 않기 때문입니다. 따라서 production은 윈도우 단독이 아니라 윈도우(3) + cooldown(2s) + quality gate를 함께 사용합니다.
+
+</details>
 
 ---
 
 ### 모듈 3 — 프레임 품질 사전 필터 🥉
 
-#### 사용 알고리즘 (OpenCV.js — Production 경로)
+Gemini 호출 직전에 흐림/저노출/과노출 프레임을 거부해 비용을 절감합니다. Laplacian variance + 밝기 통계 + edge density + coverage를 결합한 다단 필터입니다.
+
+![Quality Tradeoff](docs/ablation-results/quality-tradeoff.png)
+
+샘플 데이터(Wikimedia Commons 기반) 기준 Good 그룹의 평균 sharpness는 0.766, Bad 그룹은 0.426으로 두 그룹이 명확히 분리됩니다. `minSharpness=0.05` 임계값에서 **API 호출 23%를 절감하면서 false reject 0%**를 달성했습니다.
+
+<details>
+<summary><strong>사용 알고리즘 (OpenCV.js production 경로)</strong></summary>
+
+<br>
 
 | 알고리즘 | 목적 | OpenCV.js 함수 |
 |---|---|---|
@@ -599,20 +575,15 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 | (비교용) FFT 고주파 비율 | 블러 검출 대안 | `cv.dft` (Python 검증) |
 | (비교용) Optical Flow | 움직임 크기 추정 | `cv.calcOpticalFlowFarneback` |
 
-> **구현**: `src/lib/cv/frameMetrics.ts` — 런타임 분기.  
+> **구현**: `src/lib/cv/frameMetrics.ts` — 런타임 분기.
 > 브라우저(OpenCV.js WASM 로드 후)에서는 위 7개 OpenCV 함수를 통한 production 경로(`analyzeFrameWithOpenCv`)가 실행되고, Node 테스트·SSR·WASM 초기화 전엔 동일한 메트릭을 수동으로 누적하는 JS 폴백(`analyzeFrameWithJs`)이 실행됩니다. 두 경로 모두 같은 `CvFrameMetrics`를 반환해 호출부 차이가 없으며, 모든 `cv.Mat`은 `try/finally + .delete()`로 WASM 힙 누수를 방지합니다.
 
-#### 샘플 데이터 통계 (Wikimedia Commons 기반)
+</details>
 
-| 카테고리 | 샘플 수 | 평균 sharpness_score | 평균 밝기 |
-|---|---|---|---|
-| Good (정상) | 4 | **0.766** | 0.358 |
-| Bad (블러/과노출/저노출) | 9 | 0.426 | 0.355 |
+<details>
+<summary><strong>임계값 튜닝 결과</strong></summary>
 
-> Laplacian 기반 sharpness: Good 0.766 vs Bad 0.426 — 두 그룹 간 유의미한 분리.  
-> 밝기 평균은 유사하여 블러 검출에 Laplacian이 더 discriminative.
-
-#### 임계값 튜닝 결과
+<br>
 
 | minSharpness | API 호출 절감률 | False Reject Rate | F1(good) |
 |---|---|---|---|
@@ -620,18 +591,29 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 | 0.10 | 38% | 25% | 0.400 |
 | 0.15 | 46% | 50% | 0.300 |
 
-> **채택 파라미터**: minSharpness=0.05, minBrightness=0.15, maxBrightness=0.85  
+> **채택 파라미터**: minSharpness=0.05, minBrightness=0.15, maxBrightness=0.85
 > API 호출 23% 절감 + 좋은 품질 이미지 false reject 0% — 정밀도 우선 전략.
 
 ![Quality Blur Comparison](docs/ablation-results/quality-blur-comparison.png)
 
 ![Quality ROC](docs/ablation-results/quality-roc.png)
 
-![Quality Tradeoff](docs/ablation-results/quality-tradeoff.png)
-
 ![Quality Threshold Tuning](docs/ablation-results/quality-threshold-tuning.png)
 
-#### 비용 절감 시뮬레이션
+</details>
+
+<details>
+<summary><strong>샘플 데이터 통계 + 비용 절감 시뮬레이션</strong></summary>
+
+<br>
+
+| 카테고리 | 샘플 수 | 평균 sharpness_score | 평균 밝기 |
+|---|---|---|---|
+| Good (정상) | 4 | **0.766** | 0.358 |
+| Bad (블러/과노출/저노출) | 9 | 0.426 | 0.355 |
+
+> Laplacian 기반 sharpness: Good 0.766 vs Bad 0.426 — 두 그룹 간 유의미한 분리.
+> 밝기 평균은 유사하여 블러 검출에 Laplacian이 더 discriminative.
 
 | 구성 | API 호출 비율 | 절감 |
 |---|---|---|
@@ -641,12 +623,15 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 
 ![Quality Rejected Samples](docs/cv-pipeline/quality-rejected-samples.png)
 
+</details>
+
 ---
 
-### 🔬 Gemini Only vs CV + Gemini — 전체 파이프라인 효율 비교
+## 📊 정량 평가 — 핵심 성과
 
-> 60초 BIOS 조작 세션 시뮬레이션 (30fps = 1,800 프레임).  
-> 품질 분포: 실촬영 BIOS 22장 측정값(통과 36.4%) 적용. 변화 감지: `histogram-ablation.csv` 실측값 사용.
+### 파이프라인 전체 효율 — Gemini Only vs CV + Gemini
+
+60초 BIOS 조작 세션 시뮬레이션(30fps = 1,800 프레임). 품질 분포는 실촬영 BIOS 22장 측정값(통과 36.4%)을 적용했고, 변화 감지는 `histogram-ablation.csv` 실측값을 사용했습니다.
 
 | 지표 | Gemini Only (매 2초) | **CV + Gemini** | 개선 |
 |---|---:|---:|---:|
@@ -655,42 +640,47 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 | 추정 API 비용 ($/hr) | $1.50 | **$0.26** | ▼ 83% |
 | False Positive (normal-change, w=1→5) | 23회 | **2회** | ▼ 91% |
 
-**퍼널 시각화** — 1,800 프레임이 단계별로 필터링되어 의미 있는 5회만 Gemini에 전달됩니다:
+1,800 프레임이 단계별로 필터링되어 의미 있는 5회만 Gemini에 전달됩니다.
 
 ![Pipeline Comparison Funnel](docs/ablation-results/pipeline-comparison-funnel.png)
 
-**API 호출 비교** — 품질 불량 호출 9회가 0으로 줄고 전체 호출도 83% 감소:
+<details>
+<summary><strong>상세 비교 그래프 (API 호출 / 타임라인 / window 효과)</strong></summary>
+
+<br>
+
+품질 불량 호출 9회가 0으로 줄고 전체 호출도 83% 감소:
 
 ![Pipeline Comparison API Calls](docs/ablation-results/pipeline-comparison-api-calls.png)
 
-**타임라인** — CV+Gemini는 실제 화면 전환 시점에만 선택적으로 전송합니다:
+CV+Gemini는 실제 화면 전환 시점에만 선택적으로 전송:
 
 ![Pipeline Comparison Timeline](docs/ablation-results/pipeline-comparison-timeline.png)
 
-**window 크기 효과** — 동일 threshold에서 window=5: FP 23→2 (▼91%), F1 0.759→0.917 유지:
+동일 threshold에서 window=5: FP 23→2 (▼91%), F1 0.759→0.917 유지:
 
 ![Pipeline Comparison Window Effect](docs/ablation-results/pipeline-comparison-fp.png)
 
-> 시뮬레이션 스크립트: `notebooks/run_pipeline_comparison.py`  
+> 시뮬레이션 스크립트: `notebooks/run_pipeline_comparison.py`
 > 상세 수치: [`docs/ablation-results/pipeline-comparison-summary.csv`](docs/ablation-results/pipeline-comparison-summary.csv)
 
----
+</details>
 
-## 📊 정량 평가 요약
+### 모듈별 핵심 지표 요약
 
 | 모듈 | 핵심 지표 | 결과 |
 |---|---|---|
-| 모듈 1 — BIOS 파이프라인 | BIOS 키워드 Recall (Raw OCR, 품질통과 8장) | **19.7%** → CLAHE 단독 17.4% → 한계 분석 참조 |
-| 모듈 1 — BIOS 파이프라인 | OCR 한계 및 아키텍처 결론 | GUI BIOS는 Gemini Vision 위임 — 정당성 정량 확인 |
-| 모듈 1 — Real-Capture 평가 | 품질 게이트 / ROI 후보 검출 | 8/22 통과, 14/22 ROI 후보 검출 |
+| 모듈 1 — BIOS 파이프라인 | BIOS 키워드 Recall (Raw OCR, 품질통과 8장) | **19.7%** → CLAHE 단독 17.4% |
+| 모듈 1 — BIOS 파이프라인 | OCR 한계 및 아키텍처 결론 | GUI BIOS는 Gemini Vision 위임 |
+| 모듈 1 — Real-Capture | 품질 게이트 / ROI 후보 검출 | 8/22 통과, 14/22 ROI 후보 검출 |
 | 모듈 2 — 변화 감지 (합성) | 전체 36조합 평균 F1 | **0.703** (CORREL+GRAY+w=5) |
 | 모듈 2 — 변화 감지 (합성) | 정상 화면 전환 F1 | **0.917** |
 | 모듈 2 — 변화 감지 (합성) | Rolling Shutter Precision | **1.000** |
-| 모듈 2 — 변화 감지 (**실측**) | Test_video.mp4 best combo | **CORREL+RGB+w=3**, F1=0.34, AUC=0.70 |
+| 모듈 2 — 변화 감지 (실측) | Test_video.mp4 best combo | **CORREL+RGB+w=3**, F1=0.34, AUC=0.70 |
 | 모듈 2 — 변화 감지 (실측 보정) | TS threshold 합성→실측 | 0.9999 → **0.9995** (production 채택) |
 | 모듈 3 — 품질 필터 | API 호출 절감률 | **23%** (false reject 0%) |
 | 모듈 3 — 품질 필터 | Good vs Bad sharpness | 0.766 vs 0.426 |
-| **파이프라인 통합** | **API 호출 감소 (Gemini Only vs CV+Gemini)** | **29회 → 5회 (▼83%)** |
+| **파이프라인 통합** | **API 호출 감소** | **29회 → 5회 (▼83%)** |
 | **파이프라인 통합** | **품질 불량 호출 제거** | **9회 → 0회 (▼100%)** |
 | **파이프라인 통합** | **추정 비용 절감** | **$1.50 → $0.26/hr (▼83%)** |
 
@@ -699,7 +689,7 @@ python notebooks/evaluate_real_capture_dataset.py --image-dir "C:\Users\user\Des
 ## ⚠️ 한계 및 Future Work
 
 <details>
-<summary><strong>현재 한계</strong></summary>
+<summary><strong>현재 알려진 한계</strong></summary>
 
 <br>
 
@@ -751,7 +741,7 @@ $env:VITE_USE_MOCK="false"
 </details>
 
 <details>
-<summary><strong>실행</strong></summary>
+<summary><strong>로컬 실행</strong></summary>
 
 <br>
 
@@ -806,8 +796,7 @@ Build Command:    npm run pwa:build
 Output Directory: dist/pwa
 ```
 
-환경 변수는 Vercel Dashboard → Settings → Environment Variables에 등록.  
-백엔드 CORS의 `ALLOWED_ORIGINS`에 Vercel Production URL 추가 필요.
+환경 변수는 Vercel Dashboard → Settings → Environment Variables에 등록. 백엔드 CORS의 `ALLOWED_ORIGINS`에 Vercel Production URL 추가 필요.
 
 현재 Vercel 프로젝트는 `nextdoor-cs`로 연결되어 있고 Production URL은 다음과 같습니다.
 
@@ -884,7 +873,7 @@ npm run electron:dev
 
 ## 🗂️ 프로젝트 구조
 
-<details open>
+<details>
 <summary><strong>OpenCV 중심 파일 구조</strong></summary>
 
 <br>
