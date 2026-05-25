@@ -93,7 +93,7 @@ USB 부팅이나 부팅 우선순위 변경이 필요할 때, PWA 카메라로 B
 이 시나리오는 OpenCV가 부품을 직접 분류하지 않고 촬영 품질과 화면 변화 여부만 관리하며, 의미 판단은 Gemini Vision이 담당하는 구조를 보여줍니다.
 
 | 증상 입력 | 라이브 촬영 목표 설정 |
-|:---:|:---:|:---:|
+|:---:|:---:|
 | <img src="docs/example-img/KakaoTalk_20260522_151727149_03.png" alt="증상을 입력하는 화면" width="220"> | <img src="docs/example-img/KakaoTalk_20260522_151727149_05.png" alt="라이브 카메라에서 작업 목표를 정하는 화면" width="220"> |
 
 </details>
